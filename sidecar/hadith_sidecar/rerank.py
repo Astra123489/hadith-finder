@@ -65,9 +65,10 @@ class OnnxReranker(Reranker):
             for j, e in enumerate(batch):
                 input_ids[j, :len(e.ids)] = e.ids
                 attn[j, :len(e.attention_mask)] = e.attention_mask
-            logits = sess.run(None, {"input_ids": input_ids,
-                                     "attention_mask": attn,
-                                     "token_type_ids": np.zeros_like(input_ids)})[0]
+            feed = {"input_ids": input_ids, "attention_mask": attn}
+            if "token_type_ids" in self._input_names:
+                feed["token_type_ids"] = np.zeros_like(input_ids)
+            logits = sess.run(None, feed)[0]
             scores = logits.reshape(len(batch), -1)[:, -1].astype(np.float64)
             out.extend(scores.tolist())
         return out

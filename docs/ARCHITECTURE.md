@@ -106,9 +106,18 @@ One SQLite file per library (`library.haddb`):
 ## Build order
 
 1. ✅ Scaffold (app/, sidecar/, this doc)
-2. Sidecar ingest: PDF → hadith chunks + spans → SQLite (tested)
-3. Hybrid retrieval + rerank wiring (tested with hash embedder)
-4. Ask flow end-to-end + citations (echo LLM in tests; llama.cpp in prod)
-5. Frontend: library, import, ask, PDF viewer + highlight overlay
-6. Model downloader + settings (Careful/Fast, model picker)
-7. PyInstaller bundle + Tauri NSIS installer + README
+2. ✅ Sidecar ingest: PDF → hadith chunks + spans → SQLite (tested)
+3. ✅ Hybrid retrieval + rerank wiring (tested)
+4. ✅ Ask flow end-to-end + citations
+5. ✅ Frontend: library, import, ask, PDF viewer + highlight overlay (verified)
+6. ✅ Model downloader (Settings → AI Models, resumable, size-verified)
+7. 📦 PyInstaller sidecar + Tauri NSIS installer (in progress)
+
+## Verified with real models (on-device, demo bilingual book)
+
+- BGE-M3 int8 ONNX embeddings: dim 1024, 14 passages embedded < 1 s (CPU).
+- Cross-lingual Arabic→English retrieval: query "نية" → intent hadiths surface
+  (top hits: refs 5 and 2). Reranker query "weak narration" → da'if narration
+  ref 7 scores **+3.9** while everything else scores negative.
+- Highlight overlay positions exactly over cited passages (English + shaped-RTL
+  Arabic), verified visually on the demo book.
