@@ -52,6 +52,7 @@ class OnnxReranker(Reranker):
         self._sess = ort.InferenceSession(str(model_file), providers=["CPUExecutionProvider"])
         self._tok = Tokenizer.from_file(str(root / "tokenizer.json"))
         self._tok.enable_truncation(max_length=512)
+        self._input_names = {i.name for i in self._sess.get_inputs()}
 
     def rerank(self, query: str, texts: list[str]) -> list[float]:
         np, sess, tok = self._np, self._sess, self._tok

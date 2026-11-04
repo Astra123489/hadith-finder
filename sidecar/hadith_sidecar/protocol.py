@@ -38,6 +38,13 @@ def notify(**fields) -> None:
 
 
 def run(dispatch) -> int:
+    # Windows consoles default to cp1252 — force UTF-8 for the wire.
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="strict")
+    except (AttributeError, ValueError):
+        pass
+
     for raw in sys.stdin:
         line = raw.strip()
         if not line:

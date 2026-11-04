@@ -101,19 +101,18 @@ impl Sidecar {
         self.stdin.flush().map_err(|e| format!("flush sidecar stdin: {e}"))?;
 
         let deadline = Instant::now() + timeout;
-        let mut line = String::new();
+        let mut raw_line: Vec<u8> = Vec::with_capacity(512);
         loop {
             if Instant::now() > deadline {
                 return Err(format!("sidecar call '{method}' timed out"));
             }
-            line.clear();
-            let n = self
-                .stdout
-                .read_line(&mut line)
-                .map_err(|e| format!("read sidecar stdout: {e}"))?;
-            if n == 0 {
-                return Err("sidecar exited unexpectedly".into());
+            raw_line.clear();
+            match self.stdout.read_until(b'\n', &mut raw_line) {
+                Ok(0) => return Err("sidecar exited unexpectedly".into()),
+                Ok(_) => {}
+                Err(e) => return Err(format!("read sidecar stdout: {e}")),
             }
+            let line = String::from_utf8_lossy(&raw_line);
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
