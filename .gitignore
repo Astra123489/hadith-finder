@@ -27,3 +27,7 @@ app/src-tauri/binaries/
 *.log
 Thumbs.db
 .DS_Store
+
+# dev scratch
+sidecar_smoke_book.pdf
+scripts/1.txt
