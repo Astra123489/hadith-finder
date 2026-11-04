@@ -1,0 +1,10 @@
+pymupdf>=1.24
+numpy>=1.26
+
+# Inference (installed on demand / bundled in release builds):
+# onnxruntime>=1.17
+# tokenizers>=0.19
+# llama-cpp-python>=0.2.90
+
+# Development:
+# pytest>=8

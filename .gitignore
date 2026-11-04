@@ -1,0 +1,28 @@
+# dependencies & builds
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+sidecar/build/
+sidecar/dist/
+.venv/
+
+# app data (never commit user's library or models)
+*.haddb
+*.haddb-wal
+*.haddb-shm
+models/
+library.haddb
+
+# tooling
+.opencode/
+*.log
+Thumbs.db
+.DS_Store
