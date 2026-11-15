@@ -81,7 +81,20 @@ def _ping(_params):
         "version": __version__,
         "library": str(_state["library"]),
         "ocr": _ocr_status(),
+        "onnx": _onnx_status(),
     }
+
+
+def _onnx_status() -> dict:
+    from .embeddings import ort_providers
+
+    try:
+        import onnxruntime as ort
+
+        available = ort.get_available_providers()
+    except Exception:
+        available = []
+    return {"providers": ort_providers(), "available": available}
 
 
 def _ocr_status() -> dict:
@@ -218,6 +231,7 @@ def _models_status(_params):
 
     out = status()
     out["ocr"] = _ocr_status()
+    out["onnx"] = _onnx_status()
     out["llm_active"] = _llm_info()
     return out
 

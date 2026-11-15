@@ -116,7 +116,11 @@ One SQLite file per library (`library.haddb`):
 - Models are **downloaded on first run** (HuggingFace, SHA-256 verified, resumable),
   not bundled — installer stays ~40 MB.
 - 8B on pure CPU ≈ 2–5 tok/s (usable), much faster with GPU offload (the bundled
-  llama.cpp build is Vulkan, so NVIDIA/AMD/Intel all work). Reasoning is always on;
+  llama.cpp build is Vulkan, so NVIDIA/AMD/Intel all work).
+- Embeddings and reranking run through ONNX Runtime with the DirectML provider
+  (`onnxruntime-directml`), CPU fallback per session and per run. Work is chunked to 8
+  so a single GPU command stays under the Windows TDR timeout — a longer command resets
+  the device, which drops the session to CPU. `HADITH_ORT_PROVIDER=cpu|dml|auto`. Reasoning is always on;
   the Ask tab switches between whatever models are installed.
 - Llama excluded (weaker Arabic, restrictive license). 14B+ excluded (too slow here).
 

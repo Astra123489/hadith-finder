@@ -158,6 +158,16 @@ export default function SettingsView() {
             ) : (
               <>GPU acceleration: unavailable in this build — answers run on the CPU (slower).</>
             )}
+            {models.onnx && (
+              <>
+                <br />
+                {models.onnx.providers[0] !== "CPUExecutionProvider" ? (
+                  <>Retrieval models (embeddings + reranking): <strong>GPU (DirectML)</strong>.</>
+                ) : (
+                  <>Retrieval models (embeddings + reranking): CPU.</>
+                )}
+              </>
+            )}
           </div>
         )}
         {models?.llm_active && (

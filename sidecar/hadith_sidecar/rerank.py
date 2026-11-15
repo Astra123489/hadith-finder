@@ -49,7 +49,9 @@ class OnnxReranker(Reranker):
             raise RuntimeError(f"{root} must contain model.onnx and tokenizer.json")
 
         self._np = np
-        self._sess = ort.InferenceSession(str(model_file), providers=["CPUExecutionProvider"])
+        from .embeddings import OrtRunner, ort_providers
+
+        self._sess = OrtRunner(model_file, ort_providers())
         self._tok = Tokenizer.from_file(str(root / "tokenizer.json"))
         self._tok.enable_truncation(max_length=512)
         self._input_names = {i.name for i in self._sess.get_inputs()}

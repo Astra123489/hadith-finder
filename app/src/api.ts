@@ -98,6 +98,7 @@ export type ModelsStatus = Record<"llm" | "embedder" | "reranker", ModelInfo> & 
   all_ready: boolean;
   total_bytes: number;
   ocr?: { mode: string; available: boolean };
+  onnx?: { providers: string[]; available: string[] };
   llm_active?: ActiveModel;
 };
 
