@@ -31,3 +31,6 @@ Thumbs.db
 # dev scratch
 sidecar_smoke_book.pdf
 scripts/1.txt
+
+# local benchmark scratch
+.embbench/
