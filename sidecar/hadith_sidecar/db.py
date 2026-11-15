@@ -12,7 +12,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS books(
@@ -96,6 +96,10 @@ def find_book_by_sha(conn, sha256: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM books WHERE sha256 = ?", (sha256,)).fetchone()
 
 
+def get_book(conn, book_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
+
+
 def list_books(conn) -> list[dict]:
     rows = conn.execute(
         """
@@ -131,6 +135,12 @@ def insert_chunk(conn, *, book_id: int, chunk_index: int, page_start: int,
     return int(cur.lastrowid)
 
 
+def delete_chunks(conn, book_id: int) -> int:
+    """Remove a book's chunks (and, by cascade, embeddings and gradings)."""
+    cur = conn.execute("DELETE FROM chunks WHERE book_id = ?", (book_id,))
+    return cur.rowcount
+
+
 def get_chunks(conn, ids: list[int]) -> list[sqlite3.Row]:
     if not ids:
         return []
@@ -144,6 +154,15 @@ def iter_book_chunks(conn, book_id: int):
     yield from conn.execute(
         "SELECT * FROM chunks WHERE book_id = ? ORDER BY chunk_index", (book_id,)
     )
+
+
+def count_missing_embeddings(conn, book_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) c FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id"
+        " WHERE c.book_id = ? AND e.chunk_id IS NULL",
+        (book_id,),
+    ).fetchone()
+    return int(row["c"])
 
 
 def load_vectors(conn, book_ids: list[int] | None = None):

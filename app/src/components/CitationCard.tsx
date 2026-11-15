@@ -1,4 +1,4 @@
-import type { Citation } from "../types";
+import type { Citation, Parallel } from "../types";
 
 const GRADING_CLASS: Record<string, string> = {
   sahih: "g-sahih",
@@ -24,15 +24,28 @@ export function citationLabel(c: Citation): string {
 }
 
 interface Props {
-  index: number; // 0-based; displayed as S1, S2…
   citation: Citation;
   onHighlight: (c: Citation) => void;
 }
 
-export default function CitationCard({ index, citation: c, onHighlight }: Props) {
+function ParallelRow({ p }: { p: Parallel }) {
   return (
-    <div className="card citation" id={`citation-${index + 1}`}>
-      <div className="citation-id">Source S{index + 1}</div>
+    <div className="parallel-row">
+      <div className="parallel-head">
+        <span className="parallel-label">{p.label}</span>
+        {p.book ? <span className="parallel-book">{p.book}</span> : null}
+        <span className="parallel-score">{Math.round(p.score * 100)}% match</span>
+      </div>
+      <div className="parallel-text">{p.snippet}</div>
+    </div>
+  );
+}
+
+export default function CitationCard({ citation: c, onHighlight }: Props) {
+  const n = c.source_index;
+  return (
+    <div className="card citation" id={`citation-${n}`}>
+      <div className="citation-id">Source S{n}</div>
       <div className="citation-loc">{citationLabel(c)}</div>
       <div className="citation-excerpt">{c.excerpt}</div>
       <div className="grading-chips">
@@ -46,6 +59,14 @@ export default function CitationCard({ index, citation: c, onHighlight }: Props)
           ))
         )}
       </div>
+      {c.also_in.length > 0 && (
+        <div className="parallels">
+          <div className="parallels-title">Same narration in other collections</div>
+          {c.also_in.map((p) => (
+            <ParallelRow key={`${p.collection}-${p.number}`} p={p} />
+          ))}
+        </div>
+      )}
       <div>
         <button className="btn" onClick={() => onHighlight(c)}>
           ✎ Highlight in book · p. {c.page_start + 1}

@@ -1,6 +1,9 @@
 pymupdf>=1.24
 numpy>=1.26
 
+# OCR fallback for scanned / damaged text layers (optional but bundled):
+rapidocr-onnxruntime>=1.3
+
 # Inference (installed on demand / bundled in release builds):
 # onnxruntime>=1.17
 # tokenizers>=0.19

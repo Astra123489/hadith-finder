@@ -1,33 +1,25 @@
 mod sidecar;
 
-use std::sync::Mutex;
-
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, RunEvent};
 
-pub struct SidecarState(Mutex<sidecar::Sidecar>);
+pub struct SidecarState(sidecar::Sidecar);
 
 fn call_blocking(
     app: &AppHandle,
     method: &'static str,
     params: Value,
-    with_progress: bool,
+    timeout_secs: u64,
 ) -> Result<Value, String> {
     let state = app.state::<SidecarState>();
-    let mut sc = state.0.lock().map_err(|e| e.to_string())?;
-    let app_ref = with_progress.then_some(app);
-    // Indexing whole books can take a long time on CPU; give it room.
-    let timeout = if with_progress {
-        std::time::Duration::from_secs(6 * 60 * 60)
-    } else {
-        std::time::Duration::from_secs(600)
-    };
-    sc.call(method, params, app_ref, timeout)
+    state
+        .0
+        .call(method, params, std::time::Duration::from_secs(timeout_secs))
 }
 
 #[tauri::command]
 async fn sidecar_ping(app: AppHandle) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "ping", json!({}), false))
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "ping", json!({}), 30))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -35,7 +27,21 @@ async fn sidecar_ping(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 async fn import_book(app: AppHandle, path: String, title: Option<String>) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        call_blocking(&app, "import_book", json!({ "path": path, "title": title }), false)
+        call_blocking(
+            &app,
+            "import_book",
+            json!({ "path": path, "title": title }),
+            6 * 60 * 60,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn rebuild_book(app: AppHandle, book_id: i64) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "rebuild_book", json!({ "book_id": book_id }), 6 * 60 * 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -44,7 +50,7 @@ async fn import_book(app: AppHandle, path: String, title: Option<String>) -> Res
 #[tauri::command]
 async fn reindex_book(app: AppHandle, book_id: i64) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        call_blocking(&app, "reindex_book", json!({ "book_id": book_id }), true)
+        call_blocking(&app, "reindex_book", json!({ "book_id": book_id }), 6 * 60 * 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -52,7 +58,7 @@ async fn reindex_book(app: AppHandle, book_id: i64) -> Result<Value, String> {
 
 #[tauri::command]
 async fn list_books(app: AppHandle) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "list_books", json!({}), false))
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "list_books", json!({}), 60))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -60,7 +66,7 @@ async fn list_books(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 async fn delete_book(app: AppHandle, book_id: i64) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        call_blocking(&app, "delete_book", json!({ "book_id": book_id }), false)
+        call_blocking(&app, "delete_book", json!({ "book_id": book_id }), 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -72,6 +78,7 @@ async fn ask(
     query: String,
     book_ids: Option<Vec<i64>>,
     careful: bool,
+    ask_id: Option<String>,
 ) -> Result<Value, String> {
     let trimmed = query.trim().to_string();
     if trimmed.len() < 2 {
@@ -81,8 +88,14 @@ async fn ask(
         call_blocking(
             &app,
             "ask",
-            json!({ "query": trimmed, "book_ids": book_ids, "careful": careful }),
-            false,
+            json!({
+                "query": trimmed,
+                "book_ids": book_ids,
+                "careful": careful,
+                "ask_id": ask_id,
+            }),
+            // CPU inference on an 8B model plus reranking: generous, but finite.
+            30 * 60,
         )
     })
     .await
@@ -92,7 +105,7 @@ async fn ask(
 #[tauri::command]
 async fn models_status(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        call_blocking(&app, "models_status", json!({}), false)
+        call_blocking(&app, "models_status", json!({}), 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -104,7 +117,7 @@ async fn download_model(app: AppHandle, model: String) -> Result<Value, String> 
         return Err("model must be one of: llm, embedder, reranker".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        call_blocking(&app, "download_model", json!({ "model": model }), true)
+        call_blocking(&app, "download_model", json!({ "model": model }), 6 * 60 * 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -112,7 +125,7 @@ async fn download_model(app: AppHandle, model: String) -> Result<Value, String> 
 
 #[tauri::command]
 async fn stats(app: AppHandle) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "stats", json!({}), false))
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "stats", json!({}), 60))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -129,13 +142,15 @@ pub fn run() {
                 .expect("no app data dir");
             std::fs::create_dir_all(&lib_dir)?;
             let library = lib_dir.join("library.haddb");
-            let sc = sidecar::Sidecar::spawn(&library).map_err(|e| e.to_string())?;
-            app.manage(SidecarState(Mutex::new(sc)));
+            let sc = sidecar::Sidecar::spawn(&library, Some(app.handle().clone()))
+                .map_err(|e| e.to_string())?;
+            app.manage(SidecarState(sc));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             sidecar_ping,
             import_book,
+            rebuild_book,
             reindex_book,
             list_books,
             delete_book,
@@ -150,9 +165,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let RunEvent::Exit = event {
             if let Some(state) = app_handle.try_state::<SidecarState>() {
-                if let Ok(mut sc) = state.0.lock() {
-                    sc.kill();
-                }
+                state.0.kill();
             }
         }
     });

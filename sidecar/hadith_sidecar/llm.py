@@ -4,6 +4,11 @@ Production: llama.cpp via llama-cpp-python (MIT), model = Qwen3-8B-Instruct
 Q4_K_M by default (Apache-2.0). The app ships with no weights; the model is
 downloaded on first run into the user's data dir (see docs/ARCHITECTURE.md).
 
+The chat template comes from the GGUF file itself (llama.cpp reads its
+metadata), so swapping in another instruct model does not silently produce
+mangled prompts. Fast mode appends Qwen3's soft switch (`/no_think`);
+Careful mode leaves reasoning on and streams the reasoning too.
+
 EchoProvider exists ONLY for tests: it cites the first excerpts it sees so
 the citation-extraction path is exercised deterministically. Never used in
 production.
@@ -16,34 +21,39 @@ import re
 from pathlib import Path
 
 LLM_PATH_ENV = "HADITH_LLM_GGUF"
-_CAREFUL_THINK_PREFIX = ""  # Qwen3 thinking enabled by default in chat template
-_FAST_THINK_PREFIX = "<think>\n\n</think>\n\n"  # prefill empty thought = non-thinking
+_STOP = ["<|im_end|>", "<|endoftext|>"]
 
 
 class LLMProvider:
     name = "abstract"
 
-    def generate(self, system: str, user: str, *, max_tokens: int = 768,
-                 temperature: float = 0.2, careful: bool = False) -> str:
+    def generate(self, system: str, user: str, *, max_tokens: int = 512,
+                 temperature: float = 0.2, careful: bool = False,
+                 on_token=None) -> str:
         raise NotImplementedError
 
 
 class EchoProvider(LLMProvider):
     name = "echo"
 
-    def generate(self, system: str, user: str, *, max_tokens: int = 768,
-                 temperature: float = 0.2, careful: bool = False) -> str:
+    def generate(self, system: str, user: str, *, max_tokens: int = 512,
+                 temperature: float = 0.2, careful: bool = False,
+                 on_token=None) -> str:
         refs = re.findall(r"\[(S\d+)\]", user)
         if not refs:
             return "I could not find this in the loaded books."
         cited = ", ".join(f"[{r}]" for r in refs[:2])
-        return f"Echo answer grounded in the excerpts {cited}."
+        text = f"Echo answer grounded in the excerpts {cited}."
+        if on_token:
+            on_token(text)
+        return text
 
 
 class LlamaCppProvider(LLMProvider):
     name = "llama-cpp"
+    context_size = 6144
 
-    def __init__(self, model_path: str | None = None, *, n_ctx: int = 8192):
+    def __init__(self, model_path: str | None = None, *, n_ctx: int | None = None):
         if not model_path:
             from .downloader import default_llm_path
 
@@ -55,42 +65,145 @@ class LlamaCppProvider(LLMProvider):
                 f"(~4.7 GB, one time). Expected at: {self.model_path}"
             )
         try:
-            from llama_cpp import Llama
+            from llama_cpp import Llama, llama_supports_gpu_offload
         except ImportError as e:
             raise RuntimeError(
                 "Missing LLM dependency. Install with: pip install llama-cpp-python"
             ) from e
+
         threads = max(1, (os.cpu_count() or 4) // 2)
+        self.context_size = n_ctx or int(os.environ.get("HADITH_CTX") or 6144)
+        self.gpu_layers = self._gpu_layers(llama_supports_gpu_offload)
         self._llm = Llama(
             model_path=self.model_path,
-            n_ctx=n_ctx,
+            n_ctx=self.context_size,
             n_threads=threads,
-            n_gpu_layers=int(os.environ.get("HADITH_GPU_LAYERS", "0")),
+            n_batch=512,
+            n_gpu_layers=self.gpu_layers,
             verbose=False,
         )
+        self._chat_ok = True
 
-    def _format_qwen3(self, system: str, user: str, careful: bool) -> str:
-        prefill = "" if careful else _FAST_THINK_PREFIX
+    @staticmethod
+    def _gpu_layers(supports) -> int:
+        raw = (os.environ.get("HADITH_GPU_LAYERS") or "auto").strip().lower()
+        if raw in ("auto", ""):
+            try:
+                return -1 if supports() else 0
+            except Exception:
+                return 0
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+
+    def _messages(self, system: str, user: str, careful: bool) -> list[dict]:
+        prompt = user if careful else user + "\n/no_think"
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+
+    def _chatml(self, system: str, user: str, careful: bool) -> str:
+        prefill = "" if careful else "\n\n"
         return (
             f"<|im_start|>system\n{system}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n"
             f"<|im_start|>assistant\n{prefill}"
         )
 
-    def generate(self, system: str, user: str, *, max_tokens: int = 768,
-                 temperature: float = 0.2, careful: bool = False) -> str:
-        prompt = self._format_qwen3(system, user, careful)
-        out = self._llm.create_completion(
-            prompt=prompt,
+    def _completion(self, system: str, user: str, *, max_tokens: int,
+                    temperature: float, careful: bool, stream: bool):
+        """Chat completion via the model's own template, with a ChatML fallback."""
+        if self._chat_ok:
+            try:
+                return self._llm.create_chat_completion(
+                    messages=self._messages(system, user, careful),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    repeat_penalty=1.05,
+                    stop=_STOP,
+                    stream=stream,
+                )
+            except Exception:
+                self._chat_ok = False
+        return self._llm.create_completion(
+            prompt=self._chatml(system, user, careful),
             max_tokens=max_tokens,
             temperature=temperature,
             repeat_penalty=1.05,
-            stop=["<|im_end|>", "<|endoftext|>"],
+            stop=_STOP,
+            stream=stream,
         )
-        text = out["choices"][0]["text"].strip()
-        if not careful and text.startswith("<think>"):
-            text = re.sub(r"^<think>.*?</think>\s*", "", text, flags=re.S).strip()
-        return text
+
+    @staticmethod
+    def _text_of(out) -> str:
+        """Text from either a chat-completion or a raw-completion response."""
+        choice = out["choices"][0]
+        if isinstance(choice, dict):
+            if "message" in choice:
+                return (choice["message"] or {}).get("content") or ""
+            if "text" in choice:
+                return choice["text"] or ""
+        return ""
+
+    @staticmethod
+    def _delta_of(part) -> str:
+        choice = part["choices"][0]
+        if isinstance(choice, dict):
+            if choice.get("delta") is not None:
+                return (choice["delta"] or {}).get("content") or ""
+            return choice.get("text") or ""
+        return ""
+
+    def generate(self, system: str, user: str, *, max_tokens: int = 512,
+                 temperature: float = 0.2, careful: bool = False,
+                 on_token=None) -> str:
+        if on_token is None:
+            out = self._completion(system, user, max_tokens=max_tokens,
+                                   temperature=temperature, careful=careful, stream=False)
+            text = self._text_of(out).strip()
+            return self._strip_think(text, careful)
+
+        pieces: list[str] = []
+        pending = ""
+        started = False
+        for part in self._completion(system, user, max_tokens=max_tokens,
+                                     temperature=temperature, careful=careful, stream=True):
+            delta = self._delta_of(part)
+            if not delta:
+                continue
+            if started:
+                pending = delta
+            else:
+                pending += delta
+                if "</think>" in pending:
+                    pending = pending.split("</think>", 1)[1].lstrip()
+                elif len(pending) > 60 and not pending.lstrip().startswith("<think"):
+                    pass
+                else:
+                    continue
+                started = True
+            if pending:
+                pieces.append(pending)
+                try:
+                    on_token(pending)
+                except Exception:
+                    pass
+                pending = ""
+        if pending:
+            pieces.append(pending)
+            try:
+                on_token(pending)
+            except Exception:
+                pass
+        return self._strip_think("".join(pieces).strip(), careful)
+
+    @staticmethod
+    def _strip_think(text: str, careful: bool) -> str:
+        if careful:
+            return text
+        return re.sub(r"^.*?</think>\s*", "", text, flags=re.S).strip() if "</think>" in text else text
 
 
 def get_llm(kind: str | None = None) -> LLMProvider:

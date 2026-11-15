@@ -10,6 +10,23 @@ export interface ReindexProgress {
   total: number;
 }
 
+export interface ImportProgress {
+  type: "progress";
+  op: "import";
+  stage: "extract" | "chunks";
+  page?: number;
+  pages?: number;
+  done?: number;
+  total?: number;
+}
+
+export interface TokenProgress {
+  type: "progress";
+  op: "token";
+  ask_id: string;
+  text: string;
+}
+
 export interface DownloadProgress {
   type: "progress";
   op: "download";
@@ -20,6 +37,21 @@ export interface DownloadProgress {
   file_index: number;
   file_total: number;
 }
+
+export interface CrossrefProgress {
+  type: "progress";
+  op: "crossref";
+  stage: string;
+  done: number;
+  total: number;
+}
+
+export type Progress =
+  | ReindexProgress
+  | ImportProgress
+  | TokenProgress
+  | DownloadProgress
+  | CrossrefProgress;
 
 export interface ModelInfo {
   name: string;
@@ -35,7 +67,17 @@ export interface ModelInfo {
 export type ModelsStatus = Record<"llm" | "embedder" | "reranker", ModelInfo> & {
   all_ready: boolean;
   total_bytes: number;
+  ocr?: { mode: string; available: boolean };
 };
+
+export interface RebuildResult {
+  book_id: number;
+  title: string;
+  page_count: number;
+  chunks: number;
+  language: string;
+  ocr_pages: number;
+}
 
 export const isTauri = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -54,49 +96,65 @@ const DEMO_BOOK: Book = {
 
 const DEMO_RESULT: AskResult = {
   answer:
-    "The demo book records the Prophet ﷺ teaching that deeds are judged by their intentions, and that each person shall have only what they intended [S1]. A parallel narration states the same principle twice, with the compiler grading the transmission sahih [S2][S3]. Taken together, the narrations agree on a single rule: the written reward of an act turns on the intention behind it, not on its outward shape — and even a good intention denied its act is still recorded for the servant.",
+    "Deeds are judged by the intention behind them [S1], and the reward follows what a person actually intended [S2]. The compiler grades this transmission sahih [S1].",
   citations: [
     {
-      chunk_id: 1001,
+      chunk_id: 11,
       book_id: 999,
       book_title: DEMO_BOOK.title,
-      chapter: "Chapter 1 — Book of Intentions",
+      chapter: "Book of Intentions",
       hadith_ref: "1",
       page_start: 0,
       page_end: 0,
-      spans: { "0": [[55.0, 116.94, 539.79, 129.22], [55.0, 130.15, 193.98, 142.42]] },
+      spans: { "0": [[72, 96, 520, 118]] },
       excerpt:
-        "1. Narrated Tester: The Prophet ﷺ said, 'Deeds are judged by intentions, and every person shall have only what he intended.'",
-      gradings: [],
+        "Narrated 'Umar: I heard the Messenger of Allah say: Actions are judged by intentions, and each person will have what they intended.",
+      gradings: ["sahih"],
+      source_index: 1,
+      also_in: [
+        {
+          collection: "bukhari",
+          collection_name: "Sahih al-Bukhari",
+          number: 1,
+          book: "Revelation",
+          label: "Bukhari 1",
+          snippet:
+            "The reward of deeds depends upon the intentions and every person will get the reward according to what he has intended.",
+          score: 0.72,
+          same_collection: false,
+        },
+        {
+          collection: "muslim",
+          collection_name: "Sahih Muslim",
+          number: 1907,
+          book: "Leadership",
+          label: "Muslim 1907",
+          snippet:
+            "Actions are judged by intentions, so each man will have what he intended.",
+          score: 0.68,
+          same_collection: false,
+        },
+      ],
     },
     {
-      chunk_id: 1005,
+      chunk_id: 12,
       book_id: 999,
       book_title: DEMO_BOOK.title,
-      chapter: "Chapter 2 — Book of Sincerity",
-      hadith_ref: "5",
-      page_start: 1,
-      page_end: 1,
-      spans: { "1": [[54.62, 54.94, 343.26, 67.22]] },
+      chapter: "Book of Intentions",
+      hadith_ref: "2",
+      page_start: 0,
+      page_end: 0,
+      spans: { "0": [[72, 140, 520, 162]] },
       excerpt:
-        "5. قال رسول الله ﷺ: إنما الأعمال بالنيات، وإنما لكل امرئ ما نوى. حديث صحيح.",
+        "Whoever emigrated for a worldly gain or a woman to marry, his emigration was for what he emigrated for.",
       gradings: ["sahih"],
-    },
-    {
-      chunk_id: 1006,
-      book_id: 999,
-      book_title: DEMO_BOOK.title,
-      chapter: "Chapter 2 — Book of Sincerity",
-      hadith_ref: "5",
-      page_start: 1,
-      page_end: 1,
-      spans: { "1": [[55.0, 75.15, 539.71, 87.42], [55.0, 88.35, 202.51, 100.62]] },
-      excerpt:
-        "5. The Messenger of Allah ﷺ said, 'Actions are by intentions, and each person shall have what they intended.' This hadith is sahih.",
-      gradings: ["sahih"],
+      source_index: 2,
+      also_in: [],
     },
   ],
   retrieved: 9,
+  unverified: false,
+  scoped_empty: false,
 };
 
 const demoModel: ModelInfo = {
@@ -111,10 +169,18 @@ const demoModel: ModelInfo = {
 };
 
 const demoApi = {
-  ping: () => Promise.resolve({ pong: true, version: "0.1.0 (browser preview)", library: "demo library (in-browser preview)" }),
+  ping: () =>
+    Promise.resolve({
+      pong: true,
+      version: "0.1.0 (browser preview)",
+      library: "demo library (in-browser preview)",
+      ocr: { mode: "auto", available: false },
+    }),
   listBooks: () => Promise.resolve([DEMO_BOOK]),
-  importBook: () => Promise.reject(new Error("The browser preview cannot import PDFs — use the desktop app.")),
-  reindexBook: () => Promise.resolve({ book_id: 999, embedded: 14 }),
+  importBook: () =>
+    Promise.reject(new Error("The browser preview cannot import PDFs — use the desktop app.")),
+  rebuildBook: () => Promise.reject(new Error("The browser preview cannot rebuild a book.")),
+  reindexBook: () => Promise.resolve({ book_id: 999, embedded: 14, total: 14 }),
   deleteBook: () => Promise.resolve({ deleted: false }),
   ask: () => Promise.resolve(DEMO_RESULT),
   stats: () => Promise.resolve({ books: 1, chunks: 14, embedded: 14 }),
@@ -125,6 +191,7 @@ const demoApi = {
       reranker: { ...demoModel, name: "bge-reranker-v2-m3 (preview)" },
       all_ready: true,
       total_bytes: 0,
+      ocr: { mode: "auto", available: false },
     }),
   downloadModel: (model: "llm" | "embedder" | "reranker") =>
     Promise.resolve({ model, ready: true, dir: "demo" }),
@@ -132,20 +199,25 @@ const demoApi = {
 };
 
 const realApi = {
-  ping: () => invoke<{ pong: boolean; version: string; library: string }>("sidecar_ping"),
+  ping: () =>
+    invoke<{ pong: boolean; version: string; library: string; ocr?: { mode: string; available: boolean } }>(
+      "sidecar_ping",
+    ),
 
   listBooks: () => invoke<{ books: Book[] }>("list_books").then((r) => r.books),
 
   importBook: (path: string, title?: string) =>
     invoke<ImportResult>("import_book", { path, title: title ?? null }),
 
+  rebuildBook: (bookId: number) => invoke<RebuildResult>("rebuild_book", { bookId }),
+
   reindexBook: (bookId: number) =>
-    invoke<{ book_id: number; embedded: number }>("reindex_book", { bookId }),
+    invoke<{ book_id: number; embedded: number; total: number }>("reindex_book", { bookId }),
 
   deleteBook: (bookId: number) => invoke<{ deleted: boolean }>("delete_book", { bookId }),
 
-  ask: (query: string, bookIds: number[] | null, careful: boolean) =>
-    invoke<AskResult>("ask", { query, bookIds, careful }),
+  ask: (query: string, bookIds: number[] | null, careful: boolean, askId?: string) =>
+    invoke<AskResult>("ask", { query, bookIds, careful, askId: askId ?? null }),
 
   stats: () =>
     invoke<{ books: number; chunks: number; embedded: number }>("stats"),
@@ -155,8 +227,8 @@ const realApi = {
   downloadModel: (model: "llm" | "embedder" | "reranker") =>
     invoke<{ model: string; ready: boolean; dir: string }>("download_model", { model }),
 
-  onProgress: (cb: (p: ReindexProgress | DownloadProgress) => void): Promise<UnlistenFn> =>
-    listen<ReindexProgress | DownloadProgress>("sidecar-progress", (e) => cb(e.payload)),
+  onProgress: (cb: (p: Progress) => void): Promise<UnlistenFn> =>
+    listen<Progress>("sidecar-progress", (e) => cb(e.payload)),
 };
 
 export const api = isTauri() ? realApi : demoApi;

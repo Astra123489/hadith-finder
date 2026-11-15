@@ -1,0 +1,236 @@
+"""Cross-collection cross-reference: "the same matn in another collection".
+
+The app ships a compact corpus of the five canonical collections
+(`data/crossref.json.gz`, built by `tools/build_crossref.py`). On first use
+it is loaded into the library database as `xref` + `xref_fts`, and each
+answer citation is matched against it.
+
+Matching is deliberately conservative, because a wrong "also in Bukhari"
+claim is worse than none:
+
+  * candidate generation: FTS5 over the citation's rarest content words;
+  * scoring: token containment between the citation and the canonical matn,
+    after stripping isnad boilerplate ("narrated", "messenger of Allah", …);
+  * a match needs both enough shared words and a high containment ratio.
+
+Translations differ in wording, so containment of the *canonical* text is
+compared against the shorter side — a short hadith quoted inside a long
+chunk still matches.
+"""
+
+from __future__ import annotations
+
+import gzip
+import json
+import re
+from pathlib import Path
+
+DATA_FILE = Path(__file__).with_name("data") / "crossref.json.gz"
+XREF_VERSION = "2"
+
+STOPWORDS = {
+    "the", "and", "for", "that", "this", "with", "from", "was", "were", "are",
+    "his", "her", "him", "she", "they", "them", "their", "there", "then",
+    "when", "what", "which", "who", "whom", "whose", "will", "would", "could",
+    "should", "have", "has", "had", "been", "being", "into", "upon", "about",
+    "also", "more", "than", "some", "such", "other", "only", "over", "after",
+    "before", "these", "those", "where", "while", "because", "may", "might",
+    "must", "not", "but", "you", "your", "our", "its", "it", "we", "us", "he",
+    "she", "did", "does", "does", "do", "of", "to", "in", "on", "at", "by",
+    "as", "is", "be", "or", "an", "a", "i", "said", "says", "say", "saying",
+    "narrated", "narrates", "reported", "reports", "messenger", "prophet",
+    "allah", "peace", "blessings", "mercy", "upon", "him", "hadith", "narration",
+    "tradition", "companion", "father", "mother", "man", "people", "one",
+}
+
+_TOKEN = re.compile(r"[a-z][a-z'’\-]{2,}")
+
+
+def _tokens(text: str) -> set[str]:
+    return {t.strip("'-") for t in _TOKEN.findall((text or "").lower())} - STOPWORDS
+
+
+def _clean_for_fts(text: str) -> str:
+    return " ".join(sorted(_tokens(text)))
+
+
+def _collection_from_title(title: str, collections: list[dict]) -> str | None:
+    low = (title or "").lower()
+    for c in collections:
+        if c["name"].lower() in low or c["short"].lower() in low:
+            return c["slug"]
+    return None
+
+
+def ensure_index(conn, notify=None) -> dict:
+    """Create/populate the cross-reference tables. Idempotent and cheap to call."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS xref("
+        " id INTEGER PRIMARY KEY, collection TEXT NOT NULL, number INTEGER NOT NULL,"
+        " book TEXT, text TEXT NOT NULL, norm TEXT NOT NULL)"
+    )
+    conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS xref_fts USING fts5(norm)")
+    conn.execute("CREATE TABLE IF NOT EXISTS xref_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    row = conn.execute("SELECT value FROM xref_meta WHERE key='version'").fetchone()
+    if row and row["value"] == XREF_VERSION:
+        n = conn.execute("SELECT COUNT(*) c FROM xref").fetchone()["c"]
+        if n:
+            return {"indexed": n, "fresh": False}
+
+    if not DATA_FILE.is_file():
+        return {"indexed": 0, "fresh": False, "missing": str(DATA_FILE)}
+
+    with gzip.open(DATA_FILE, "rt", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    collections = payload.get("collections", [])
+    slugs = [c["slug"] for c in collections]
+    rows = []
+    for coll_idx, number, book, text in payload.get("hadiths", []):
+        slug = slugs[coll_idx] if coll_idx < len(slugs) else "unknown"
+        rows.append((slug, int(number), book or "", text, _clean_for_fts(text)))
+
+    if notify:
+        notify(op="crossref", stage="index", done=0, total=len(rows))
+    with conn:
+        # Rebuild from scratch so a version bump also repairs the schema.
+        conn.execute("DROP TABLE IF EXISTS xref")
+        conn.execute("DROP TABLE IF EXISTS xref_fts")
+        conn.execute(
+            "CREATE TABLE xref(id INTEGER PRIMARY KEY, collection TEXT NOT NULL,"
+            " number INTEGER NOT NULL, book TEXT, text TEXT NOT NULL, norm TEXT NOT NULL)"
+        )
+        conn.execute("CREATE VIRTUAL TABLE xref_fts USING fts5(norm)")
+        for i in range(0, len(rows), 2000):
+            batch = rows[i:i + 2000]
+            numbered = [(i + j + 1, *row) for j, row in enumerate(batch)]
+            conn.executemany(
+                "INSERT OR REPLACE INTO xref(id, collection, number, book, text, norm) VALUES (?,?,?,?,?,?)",
+                numbered,
+            )
+            conn.executemany(
+                "INSERT INTO xref_fts(rowid, norm) VALUES (?,?)",
+                [(row[0], row[5]) for row in numbered],
+            )
+            if notify:
+                notify(op="crossref", stage="index", done=min(i + 2000, len(rows)), total=len(rows))
+        conn.execute("INSERT OR REPLACE INTO xref_meta(key, value) VALUES ('version', ?)", (XREF_VERSION,))
+        conn.execute(
+            "INSERT OR REPLACE INTO xref_meta(key, value) VALUES ('collections', ?)",
+            (json.dumps(collections, ensure_ascii=False),),
+        )
+    return {"indexed": len(rows), "fresh": True}
+
+
+def collections(conn) -> list[dict]:
+    row = conn.execute("SELECT value FROM xref_meta WHERE key='collections'").fetchone()
+    return json.loads(row["value"]) if row else []
+
+
+import math
+
+_DF_CACHE: dict[str, int] = {}
+
+
+def _doc_count(conn) -> int:
+    row = conn.execute("SELECT COUNT(*) c FROM xref").fetchone()
+    return int(row["c"]) if row else 0
+
+
+def _df(conn, token: str) -> int:
+    cached = _DF_CACHE.get(token)
+    if cached is not None:
+        return cached
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM xref_fts WHERE xref_fts MATCH ?", (f'"{token}"',)
+        ).fetchone()
+        count = int(row["c"])
+    except Exception:
+        count = 0
+    _DF_CACHE[token] = count
+    return count
+
+
+def _weights(conn, text: str, n_docs: int) -> dict[str, float]:
+    """Token → IDF weight. Ubiquitous words weigh almost nothing."""
+    out: dict[str, float] = {}
+    for token in _tokens(text):
+        out[token] = math.log(1.0 + n_docs / (1.0 + _df(conn, token)))
+    return out
+
+
+def find_parallels(conn, text: str, *, limit: int = 3, min_weight: float = 8.0,
+                   min_score: float = 0.45, exclude_collection: str | None = None) -> list[dict]:
+    """Return canonical narrations carrying the same matn as `text`."""
+    toks = list(_tokens(text))
+    if len(toks) < 6:
+        return []
+    try:
+        ensure_index(conn)
+    except Exception:
+        return []
+    n_docs = _doc_count(conn)
+    if n_docs == 0:
+        return []
+    weights = _weights(conn, text, n_docs)
+    total_have = sum(weights.values()) or 1.0
+    # Rarest (highest-IDF) words give FTS a compact, high-precision OR query.
+    probe = sorted(weights, key=lambda t: -weights[t])[:24]
+    if not probe:
+        return []
+    match = " OR ".join(f'"{t}"' for t in probe)
+    try:
+        rows = conn.execute(
+            "SELECT x.collection, x.number, x.book, x.text, x.norm"
+            " FROM xref_fts f JOIN xref x ON x.id = f.rowid"
+            " WHERE xref_fts MATCH ? ORDER BY bm25(xref_fts) LIMIT 60",
+            (match,),
+        ).fetchall()
+    except Exception:
+        return []
+
+    scored: list[dict] = []
+    for row in rows:
+        want = set(row["norm"].split()) if row["norm"] else set()
+        if len(want) < 4:
+            continue
+        shared = [t for t in want if t in weights]
+        if len(shared) < 4:
+            continue
+        weight = sum(weights[t] for t in shared)
+        if weight < min_weight:
+            continue
+        total_want = sum(_weights(conn, row["text"], n_docs).values()) or 1.0
+        score = weight / min(total_have, total_want)
+        if score < min_score:
+            continue
+        scored.append({
+            "collection": row["collection"],
+            "number": int(row["number"]),
+            "book": row["book"],
+            "text": row["text"],
+            "score": round(score, 3),
+            "shared": len(shared),
+            "same_collection": row["collection"] == exclude_collection,
+        })
+
+    # Prefer a genuine other-collection match; fall back to the same collection
+    # (a parallel chain inside one collection is still useful) when nothing else
+    # clears the bar.
+    scored.sort(key=lambda m: (m["same_collection"], -m["score"], -m["shared"]))
+    picked: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for m in scored:
+        key = (m["collection"], m["number"])
+        if key in seen:
+            continue
+        seen.add(key)
+        picked.append(m)
+        if len(picked) >= limit:
+            break
+    return picked
+
+
+def label_for(conn, match: dict) -> str:
+    names = {c["slug"]: c["name"] for c in collections(conn)}
+    return f"{names.get(match['collection'], match['collection'])} {match['number']}"

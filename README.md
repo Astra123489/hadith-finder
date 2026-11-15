@@ -18,8 +18,10 @@ a hadith.
 Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded research pipeline**:
 
 1. **Hadith-aware chunking** — books are split at hadith boundaries (numbering / حَدَّثَنَا
-   delimits), not blind fixed windows. Chapter context (كتاب / باب / Book / Chapter) is kept
-   with every passage.
+   delimits), not blind fixed windows. Numbers must move forward through the book and carry a
+   hadith-shaped marker, so Qur'anic footnotes ("[1] Al-Baqarah 2:238"), page numbers and
+   contents pages never split a narration. Chapter context (كتاب / باب / Book / Chapter) is
+   kept with every passage, and messy OCR text layers are re-read with RapidOCR when needed.
 2. **Hybrid retrieval** — SQLite FTS5 (BM25, with Arabic normalization: tashkeel stripped,
    alef/ya forms unified) **plus** dense vectors from BGE-M3, fused with Reciprocal Rank
    Fusion (k = 60). Exact names *and* paraphrases, *and* cross-lingual Arabic ↔ English.
@@ -32,6 +34,10 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
 5. **Authenticity as printed** — grading keywords (صحيح / حسن / ضعيف / موضوع, sahih / hasan /
    da’if …) are extracted *only when the book itself states them*, and shown as chips on each
    source card.
+6. **Cross-collection references** — each cited narration is compared against a bundled
+   corpus of the five canonical collections (Bukhari, Muslim, Abu Dawud, Nasa'i, Ibn Majah).
+   Matches are weighted by rare-word overlap, shown as “same narration in other collections”
+   with the collection and number, and labelled as a similarity match, not a scholarly ruling.
 
 ## What ships in v0.1
 
@@ -39,19 +45,24 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
   content is distributed with the app.
 - Full-text + semantic hybrid search over your library, with background indexing and
   progress bar.
-- Ask view with **Fast / Careful** modes (Careful = step-by-step reasoning), citation chips,
-  source cards with scroll/jump.
-- Built-in PDF viewer with **highlighted passages**, page jump, arrow-key navigation.
+- Ask view with **Fast / Careful** modes (Careful = step-by-step reasoning), live streaming
+  answers, citation chips that keep their excerpt number, and source cards with scroll/jump.
+- **Same narration in other collections** on every citation (bundled Bukhari/Muslim/Abu
+  Dawud/Nasa'i/Ibn Majah corpus, matched offline).
+- **RapidOCR** fallback for scanned or damaged text layers, plus **Rebuild** on any book to
+  re-extract and re-index it after an extractor improvement.
+- Built-in PDF viewer with **highlighted passages**, multi-page citation jumps, arrow-key
+  navigation.
 - One-time **AI model download** (~6.2 GB) from Settings with resume support.
 - Open source (AGPL-3.0) — share it with anyone, for free.
 
 ### Roadmap (next)
 
-- Scanned/image PDFs via OCR (Tesseract)
+- Arabic-script OCR (the shipped RapidOCR model reads Latin script only)
 - Summarize whole books/chapters
 - Pre-built, checksum-pinned model manifest; delta indexing
 - macOS + Linux builds; Urdu/Turkish UI translations
-- Grading sources beyond the book (e.g., cross-book references), always labeled
+- Grading sources beyond the book, always labeled
 
 ## AI models (free, open, local)
 

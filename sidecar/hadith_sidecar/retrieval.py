@@ -4,11 +4,14 @@ Corpus is small enough (≲ 50k chunks) to scan vectors in NumPy, so no
 vector-DB server is required. The keyword arm catches exact names and
 rare terms; the dense arm catches paraphrases and cross-lingual
 Arabic↔English matches.
+
+Either arm may be unavailable — a fresh book has no vectors yet, and a
+model switch can leave vectors of the wrong width behind. Retrieval then
+degrades to the arm that works instead of returning nothing or crashing.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -34,7 +37,7 @@ def _fts_search(conn, query: str, book_ids: list[int] | None, limit: int) -> lis
     match = " OR ".join(f'"{t}"' for t in toks)
     sql = "SELECT c.id FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ?"
     params: list = [match]
-    if book_ids:
+    if book_ids is not None:
         sql += f" AND c.book_id IN ({','.join('?' * len(book_ids))})"
         params += book_ids
     sql += " ORDER BY bm25(chunks_fts) LIMIT ?"
@@ -50,7 +53,11 @@ def _vec_search(conn, query: str, embedder, book_ids: list[int] | None, limit: i
     ids, matrix, dim = db.load_vectors(conn, book_ids)
     if not ids or dim == 0:
         return []
-    q = embedder.embed([normalize_query(query)])[0]
+    q = np.asarray(embedder.embed([normalize_query(query)])[0], dtype=np.float32)
+    if q.shape[0] != dim:
+        # Stale vectors from a different embedder: ignore the dense arm rather
+        # than raising a shape error at the user.
+        return []
     sims = matrix @ q  # rows are L2-normalized; q from providers is normalized
     order = np.argsort(-sims)[:limit]
     return [int(ids[i]) for i in order]
@@ -58,6 +65,9 @@ def _vec_search(conn, query: str, embedder, book_ids: list[int] | None, limit: i
 
 def hybrid_search(conn, query: str, embedder, *, book_ids: list[int] | None = None,
                   pool: int = 30) -> list[Retrieved]:
+    if book_ids is not None and len(book_ids) == 0:
+        return []  # an empty selection means "no books", never "all books"
+
     fts_ids = _fts_search(conn, query, book_ids, pool * 2)
     vec_ids = _vec_search(conn, query, embedder, book_ids, pool * 2)
 

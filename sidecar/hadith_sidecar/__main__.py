@@ -56,6 +56,7 @@ def dispatch(method: str, params: dict):
     handlers = {
         "ping": _ping,
         "import_book": _import_book,
+        "rebuild_book": _rebuild_book,
         "reindex_book": _reindex_book,
         "list_books": _list_books,
         "delete_book": _delete_book,
@@ -71,19 +72,42 @@ def dispatch(method: str, params: dict):
 
 
 def _ping(_params):
-    return {"pong": True, "version": __version__, "library": str(_state["library"])}
+    return {
+        "pong": True,
+        "version": __version__,
+        "library": str(_state["library"]),
+        "ocr": _ocr_status(),
+    }
+
+
+def _ocr_status() -> dict:
+    from . import ocr
+
+    return {"mode": ocr.mode(), "available": ocr.available()}
 
 
 def _import_book(params):
     path = params.get("path")
     if not path:
         raise ValueError("params.path is required")
+    from . import protocol
     from .ingest import ingest_pdf
 
     return ingest_pdf(
         _conn(), path,
         title=params.get("title"), author=params.get("author"),
+        progress=protocol.notify,
     )
+
+
+def _rebuild_book(params):
+    book_id = params.get("book_id")
+    if book_id is None:
+        raise ValueError("params.book_id is required")
+    from . import protocol
+    from .ingest import rebuild_book
+
+    return rebuild_book(_conn(), int(book_id), progress=protocol.notify)
 
 
 def _reindex_book(params):
@@ -92,6 +116,7 @@ def _reindex_book(params):
     batch = int(params.get("batch") or 16)
     if book_id is None:
         raise ValueError("params.book_id is required")
+    book_id = int(book_id)
     embedder = _embedder()
 
     # Model change → drop stale vectors so dimensions never mix (applies to all books).
@@ -105,22 +130,31 @@ def _reindex_book(params):
         conn.commit()
 
     all_rows = list(conn.execute(
-        "SELECT c.* FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id WHERE e.chunk_id IS NULL ORDER BY c.book_id, c.chunk_index"
+        "SELECT c.* FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id "
+        "WHERE e.chunk_id IS NULL ORDER BY c.book_id, c.chunk_index"
     ))
     # Scope: after a model switch everything needs re-embedding; otherwise just this book's gaps.
-    todo = all_rows if model_changed else [r for r in all_rows if r["book_id"] == int(book_id)]
+    todo = all_rows if model_changed else [r for r in all_rows if r["book_id"] == book_id]
+    return _embed_rows(conn, todo, embedder, book_id=book_id, batch=batch)
+
+
+def _embed_rows(conn, todo, embedder, *, book_id: int, batch: int = 16) -> dict:
     from . import protocol
+
     total = len(todo)
     done = 0
+    if total == 0:
+        return {"book_id": book_id, "embedded": 0, "total": 0}
+    protocol.notify(op="reindex", book_id=book_id, done=0, total=total)
     for i in range(0, total, batch):
-        chunk_rows = todo[i:i + batch]
-        vecs = embedder.embed([r["norm_text"] for r in chunk_rows])
+        rows = todo[i:i + batch]
+        vecs = embedder.embed([r["norm_text"] for r in rows])
         with conn:
-            for r, v in zip(chunk_rows, vecs):
+            for r, v in zip(rows, vecs):
                 db.set_embedding(conn, r["id"], v)
-        done += len(chunk_rows)
-        protocol.notify(op="reindex", book_id=int(book_id), done=done, total=total)
-    return {"book_id": int(book_id), "embedded": total}
+        done += len(rows)
+        protocol.notify(op="reindex", book_id=book_id, done=done, total=total)
+    return {"book_id": book_id, "embedded": total, "total": total}
 
 
 def _list_books(_params):
@@ -151,6 +185,13 @@ def _ask(params):
     book_ids = params.get("book_ids")
     if book_ids is not None:
         book_ids = [int(b) for b in book_ids]
+    ask_id = params.get("ask_id")
+
+    def on_token(text: str) -> None:
+        from . import protocol
+
+        protocol.notify(op="token", ask_id=ask_id, text=text)
+
     return qa_ask(
         _conn(), query,
         book_ids=book_ids,
@@ -158,13 +199,17 @@ def _ask(params):
         llm=_llm(),
         reranker=_reranker(),
         careful=bool(params.get("careful")),
+        on_token=on_token if ask_id else None,
+        ask_id=ask_id,
     )
 
 
 def _models_status(_params):
     from .downloader import status
 
-    return status()
+    out = status()
+    out["ocr"] = _ocr_status()
+    return out
 
 
 def _download_model(params):

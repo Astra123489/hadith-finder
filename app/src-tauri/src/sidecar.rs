@@ -5,24 +5,34 @@
 //!   2. `hadith-sidecar(.exe)` next to the app executable (bundled via PyInstaller),
 //!   3. dev fallback: `py -3.13 -m hadith_sidecar <library>` with cwd = `sidecar/`.
 //!
-//! Calls are serialized (one outstanding request at a time) and blocking; async
-//! commands offload them to the blocking thread pool so the UI never stalls.
-//! Progress notifications from the sidecar are re-emitted as `sidecar-progress`
-//! (payload keeps `op`: "reindex" | "download").
+//! A dedicated reader thread owns stdout. Responses are filed under their
+//! request id and waiters are woken by a condvar, so:
+//!   * timeouts are real (the old blocking `read_until` could hang forever),
+//!   * progress notifications are re-emitted as `sidecar-progress` while a
+//!     long import/indexing call is still running,
+//!   * no global lock is held for the duration of a call.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
+struct Shared {
+    responses: HashMap<u64, Value>,
+    dead: bool,
+}
+
 pub struct Sidecar {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    next_id: u64,
+    child: Mutex<Child>,
+    stdin: Mutex<ChildStdin>,
+    shared: Arc<(Mutex<Shared>, Condvar)>,
+    next_id: AtomicU64,
 }
 
 fn sidecar_root() -> PathBuf {
@@ -41,7 +51,7 @@ fn bundled_sidecar() -> Option<PathBuf> {
 }
 
 impl Sidecar {
-    pub fn spawn(library: &Path) -> Result<Self, String> {
+    pub fn spawn(library: &Path, app: Option<AppHandle>) -> Result<Self, String> {
         let mut cmd = if let Ok(explicit) = std::env::var("HADITH_SIDECAR_EXE") {
             Command::new(explicit)
         } else if let Some(bundled) = bundled_sidecar() {
@@ -74,70 +84,97 @@ impl Sidecar {
         let mut child = cmd.spawn().map_err(|e| format!("spawn sidecar: {e}"))?;
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
+
+        let shared = Arc::new((
+            Mutex::new(Shared { responses: HashMap::new(), dead: false }),
+            Condvar::new(),
+        ));
+
+        let reader_shared = Arc::clone(&shared);
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let Ok(msg) = serde_json::from_str::<Value>(trimmed) else {
+                    eprintln!("sidecar: unparseable line: {trimmed}");
+                    continue;
+                };
+                if msg.get("type").and_then(Value::as_str) == Some("progress") {
+                    if let Some(app) = app.as_ref() {
+                        let _ = app.emit("sidecar-progress", msg);
+                    }
+                    continue;
+                }
+                let Some(id) = msg.get("id").and_then(Value::as_u64) else {
+                    continue;
+                };
+                let (lock, cv) = &*reader_shared;
+                if let Ok(mut state) = lock.lock() {
+                    state.responses.insert(id, msg);
+                    cv.notify_all();
+                }
+            }
+            let (lock, cv) = &*reader_shared;
+            if let Ok(mut state) = lock.lock() {
+                state.dead = true;
+                cv.notify_all();
+            }
+        });
+
         Ok(Self {
-            child,
-            stdin,
-            stdout: BufReader::new(stdout),
-            next_id: 1,
+            child: Mutex::new(child),
+            stdin: Mutex::new(stdin),
+            shared,
+            next_id: AtomicU64::new(1),
         })
     }
 
-    pub fn kill(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    pub fn kill(&self) {
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 
-    pub fn call(
-        &mut self,
-        method: &str,
-        params: Value,
-        app: Option<&AppHandle>,
-        timeout: Duration,
-    ) -> Result<Value, String> {
-        let id = self.next_id;
-        self.next_id += 1;
+    pub fn call(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req = json!({ "id": id, "method": method, "params": params });
-        writeln!(self.stdin, "{req}").map_err(|e| format!("write sidecar stdin: {e}"))?;
-        self.stdin.flush().map_err(|e| format!("flush sidecar stdin: {e}"))?;
+        {
+            let mut stdin = self.stdin.lock().map_err(|e| e.to_string())?;
+            writeln!(stdin, "{req}").map_err(|e| format!("write sidecar stdin: {e}"))?;
+            stdin.flush().map_err(|e| format!("flush sidecar stdin: {e}"))?;
+        }
 
         let deadline = Instant::now() + timeout;
-        let mut raw_line: Vec<u8> = Vec::with_capacity(512);
+        let (lock, cv) = &*self.shared;
+        let mut state = lock.lock().map_err(|e| e.to_string())?;
         loop {
-            if Instant::now() > deadline {
+            if let Some(msg) = state.responses.remove(&id) {
+                if msg.get("ok").and_then(Value::as_bool) == Some(true) {
+                    return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
+                }
+                let err = msg.get("error").cloned().unwrap_or(json!({ "message": "unknown error" }));
+                return Err(err
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("sidecar error")
+                    .to_string());
+            }
+            if state.dead {
+                return Err("sidecar exited unexpectedly".into());
+            }
+            let now = Instant::now();
+            if now >= deadline {
                 return Err(format!("sidecar call '{method}' timed out"));
             }
-            raw_line.clear();
-            match self.stdout.read_until(b'\n', &mut raw_line) {
-                Ok(0) => return Err("sidecar exited unexpectedly".into()),
-                Ok(_) => {}
-                Err(e) => return Err(format!("read sidecar stdout: {e}")),
-            }
-            let line = String::from_utf8_lossy(&raw_line);
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let msg: Value = serde_json::from_str(trimmed)
-                .map_err(|e| format!("bad sidecar JSON: {e}: {trimmed}"))?;
-            if msg.get("type").and_then(Value::as_str) == Some("progress") {
-                if let Some(app) = app {
-                    let _ = app.emit("sidecar-progress", msg);
-                }
-                continue;
-            }
-            if msg.get("id").and_then(Value::as_u64) != Some(id) {
-                eprintln!("sidecar: ignoring out-of-order message: {trimmed}");
-                continue;
-            }
-            if msg.get("ok").and_then(Value::as_bool) == Some(true) {
-                return Ok(msg.get("result").cloned().unwrap_or(Value::Null));
-            }
-            let err = msg.get("error").cloned().unwrap_or(json!({"message": "unknown error"}));
-            return Err(err
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("sidecar error")
-                .to_string());
+            let (guard, _) = cv
+                .wait_timeout(state, deadline - now)
+                .map_err(|e| e.to_string())?;
+            state = guard;
         }
     }
 }

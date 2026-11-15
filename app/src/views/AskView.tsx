@@ -16,7 +16,7 @@ interface Props {
   books: Book[];
   initialScope: number[] | null;
   onScopeChange: (ids: number[] | null) => void;
-  onOpenCitation: (citation: Citation, tag: string) => void;
+  onOpenCitation: (citation: Citation) => void;
 }
 
 export default function AskView({ books, initialScope, onScopeChange, onOpenCitation }: Props) {
@@ -26,10 +26,26 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [streamed, setStreamed] = useState("");
   const answerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const askIdRef = useRef<string | null>(null);
 
   useEffect(() => setScope(initialScope), [initialScope]);
+
+  // Live tokens from the sidecar: the answer appears as it is written instead
+  // of after the whole (often multi-minute) CPU generation finishes.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    api.onProgress((p) => {
+      if (p.op !== "token") return;
+      if (!askIdRef.current || p.ask_id !== askIdRef.current) return;
+      setStreamed((cur) => cur + p.text);
+    }).then((fn) => (unlisten = fn));
+    return () => unlisten?.();
+  }, []);
+
+  const noneSelected = Array.isArray(scope) && scope.length === 0 && books.length > 0;
 
   const scopeLabel = useMemo(() => {
     if (!scope || scope.length === books.length) return "all loaded books";
@@ -57,18 +73,27 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     const q = query.trim();
-    if (q.length < 2 || busy) return;
+    if (q.length < 2 || busy || noneSelected) return;
+    const askId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `ask-${Date.now()}`;
+    askIdRef.current = askId;
     setBusy(true);
     setError(null);
+    setResult(null);
+    setStreamed("");
     try {
-      const res = await api.ask(q, scope, careful);
+      const res = await api.ask(q, scope, careful, askId);
       setResult(res);
       requestAnimationFrame(() => answerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     } catch (err) {
       setError(String(err));
       setResult(null);
     } finally {
+      askIdRef.current = null;
       setBusy(false);
+      setStreamed("");
     }
   };
 
@@ -80,18 +105,19 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     return parts.map((part, i) => {
       const m = part.match(/^\[S(\d+)\]$/);
       if (m) {
-        const idx = parseInt(m[1], 10) - 1;
-        if (idx < result.citations.length) {
+        const num = parseInt(m[1], 10);
+        const cite = result.citations.find((c) => c.source_index === num);
+        if (cite) {
           return (
             <button
               key={i}
               className="cite-badge"
-              title={citationLabel(result.citations[idx])}
+              title={citationLabel(cite)}
               onClick={() => {
-                document.getElementById(`citation-${idx + 1}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                document.getElementById(`citation-${num}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
               }}
             >
-              S{idx + 1}
+              S{num}
             </button>
           );
         }
@@ -132,7 +158,11 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           </button>
           <span className="ask-hint"><span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> to ask</span>
           <div className="spacer" />
-          <button className="btn btn-primary" type="submit" disabled={busy || query.trim().length < 2 || books.length === 0}>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy || query.trim().length < 2 || books.length === 0 || noneSelected}
+          >
             {busy ? (<><span className="spinner" /> Thinking…</>) : "Ask →"}
           </button>
         </div>
@@ -162,21 +192,37 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
         </div>
       )}
 
+      {noneSelected && !result && (
+        <div className="error-banner">Select at least one book to search.</div>
+      )}
+
       {error && <div className="error-banner">{error}</div>}
+
+      {busy && streamed && (
+        <div className="card answer streaming" dir="auto">
+          <p>{streamed}<span className="cursor">▍</span></p>
+          <div className="stream-note">Still writing — sources appear when the answer is finished.</div>
+        </div>
+      )}
 
       {result && (
         <div ref={answerRef}>
           <div className={`card answer ${isNotFound ? "notfound" : ""}`} dir="auto">
             <p>{renderedAnswer}</p>
           </div>
+          {result.unverified && !isNotFound && (
+            <div className="error-banner">
+              The model answered without citing a passage. Treat this answer as unsourced until you
+              find it in the text yourself.
+            </div>
+          )}
           {result.citations.length > 0 && (
             <div className="citations">
-              {result.citations.map((c, i) => (
+              {result.citations.map((c) => (
                 <CitationCard
                   key={c.chunk_id}
-                  index={i}
                   citation={c}
-                  onHighlight={(cite) => onOpenCitation(cite, `S${i + 1}`)}
+                  onHighlight={(cite) => onOpenCitation(cite)}
                 />
               ))}
             </div>

@@ -21,6 +21,9 @@ sidecar/              Python AI backend (bundled as one exe via PyInstaller)
     db.py             SQLite schema (books, chunks, embeddings, FTS5, gradings)
     normalize.py      Arabic text normalization (diacritics, alef/ya forms)
     chunking.py       hadith-aware boundary detection (numbering, حَدَّثَنَا)
+    ocr.py            RapidOCR fallback for scanned / damaged text layers
+    crossref.py       "same matn in another collection" matcher + bundled corpus
+    data/crossref.json.gz  compact Bukhari/Muslim/Abu Dawud/Nasa'i/Ibn Majah corpus
     ingest.py         PyMuPDF: text + word bounding boxes per page → chunks + spans
     embeddings.py     provider interface: ONNX BGE-M3 (default) | hash (tests)
     retrieval.py      hybrid search: FTS5 keyword + dense vectors, RRF fusion
@@ -60,10 +63,21 @@ One SQLite file per library (`library.haddb`):
 
 ## Accuracy pipeline (the point of the project)
 
-1. **Hadith-aware chunking.** Numbered boundaries (`[123]`, `123.`, Arabic numerals
-   line-start) or, failing that, `حَدَّثَنَا` at line starts. Tiny fragments merge,
-   oversized hadiths split at sentence boundaries. Chapter headings
-   (كتاب/باب/Book/Chapter) attach to following chunks as metadata.
+1. **Hadith-aware chunking.** The book's numbering style is detected first
+   (bracketed markers win over plain `123.` lists, so contents pages cannot
+   poison the sequence). A marker only splits when it carries the customary
+   ordinal/parenthetical tail, is not a Qur'anic footnote ("[1] Al-Baqarah
+   2:238"), and moves the sequence forward; OCR-mangled markers are repaired by
+   picking the middle four-digit window. Everything before the first numbered
+   narration (cover, copyright, contents) is dropped, running heads and bare
+   page numbers are removed, tiny fragments merge, and oversized hadiths split
+   at line boundaries under the 6000-character cap. Chapter headings
+   (كتاب/باب/Book/Chapter, or a genuine title-case line) attach to following
+   chunks as metadata.
+
+   Pages whose text layer is missing or substantially broken are re-read with
+   RapidOCR (PP-OCR ONNX models, ~4 s/page) when `rapidocr-onnxruntime` is
+   installed; `HADITH_OCR=off|auto|force` controls it.
 2. **Arabic normalization** (search index only; originals preserved for display):
    strip tashkeel, unify alef variants → ا, ى→ي, drop tatweel, collapse whitespace.
 3. **Hybrid retrieval.** FTS5 (BM25) + dense cosine, fused with Reciprocal Rank
@@ -77,6 +91,17 @@ One SQLite file per library (`library.haddb`):
 6. **Summarization** = map-reduce over chapter slices, same citation rules.
 7. **Gradings**: regex/keyword extraction of صحيح/حسن/ضعيف/موضوع + English
    "sahih/hasan/da'if/mawdu" when present in the printed text.
+8. **Cross-collection references.** Each citation is tokenised, boilerplate
+   ("narrated", "messenger of Allah", …) removed, and matched against the
+   bundled canonical corpus: FTS5 proposes candidates, then IDF-weighted
+   containment scores them (`crossref.find_parallels`). Matches below the
+   threshold are not shown; the UI labels them as similarity matches.
+9. **Streaming.** llama.cpp chat completions are streamed; the sidecar emits
+   `op="token"` progress frames tagged with `ask_id`, which the Rust reader
+   thread forwards to the UI as `sidecar-progress`. Citation numbering is kept
+   (`source_index`) so `[S4]` always maps to the card labelled S4, and an answer
+   with no citations is returned with `unverified: true` instead of being pinned
+   to an arbitrary excerpt.
 
 ## LLM choice (16 GB RAM / 4–8 GB VRAM / integrated GPU)
 

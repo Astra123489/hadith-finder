@@ -109,6 +109,13 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
   const zoom = (delta: number) =>
     setScale((s) => Math.min(3, Math.max(0.7, +(s + delta).toFixed(2))));
 
+  // A citation can span pages; show where the other highlighted pages are so
+  // the reader does not have to page through the book hunting for them.
+  const highlightedPages = Object.keys(spans)
+    .map((k) => parseInt(k, 10))
+    .filter((n) => Number.isFinite(n) && n !== page)
+    .sort((a, b) => a - b);
+
   return (
     <div className="viewer-overlay" role="dialog" aria-modal="true">
       <div className="viewer-toolbar">
@@ -116,6 +123,16 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
         <div className="viewer-title">{title}</div>
         <div className="spacer" />
         {sourceTag && <span className="scope-chip on">source {sourceTag}</span>}
+        {highlightedPages.map((p) => (
+          <button
+            key={p}
+            className="scope-chip"
+            onClick={() => setPage(p)}
+            title={`This citation continues on page ${p + 1}`}
+          >
+            p. {p + 1} ▸
+          </button>
+        ))}
         <button className="icon-btn" onClick={() => zoom(-0.2)} title="Zoom out">−</button>
         <span style={{ color: "var(--text-dim)", fontSize: 13, minWidth: 44, textAlign: "center" }}>
           {Math.round(scale * 100)}%

@@ -4,7 +4,7 @@ import { api, formatMB, type DownloadProgress, type ModelsStatus } from "../api"
 type ModelKey = "llm" | "embedder" | "reranker";
 
 export default function SettingsView() {
-  const [info, setInfo] = useState<{ version: string; library: string } | null>(null);
+  const [info, setInfo] = useState<{ version: string; library: string; ocr?: { mode: string; available: boolean } } | null>(null);
   const [models, setModels] = useState<ModelsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ModelKey | null>(null);
@@ -118,13 +118,31 @@ export default function SettingsView() {
           extracted passages and search index — never the PDFs themselves, which stay where they are.
           Back it up by copying that file. Models live next to it in <code>models/</code>.
         </p>
+        <p>
+          If a book was imported before an extractor improvement, open <strong>Library → Rebuild</strong> on it:
+          the PDF is re-read on this device and the passages and index are regenerated.
+        </p>
+      </div>
+
+      <div className="card settings-section">
+        <h2>Text extraction (OCR)</h2>
+        <p>
+          Scanned pages, and pages whose text layer was damaged by the publisher, are re-read with
+          RapidOCR on this device. Status:{" "}
+          <strong>{info?.ocr ? (info.ocr.available ? `RapidOCR ready (mode: ${info.ocr.mode})` : "not installed — text-layer only") : "…"}</strong>
+        </p>
+        <p style={{ color: "var(--text-faint)", fontSize: 12 }}>
+          The shipped OCR model reads Latin script; Arabic pages that contain no text layer at all
+          still need an Arabic OCR pass before importing.
+        </p>
       </div>
 
       <div className="card settings-section">
         <h2>Honest limitations</h2>
         <ul>
-          <li>Only <strong>text-based PDFs</strong> are readable — scanned books need OCR first.</li>
+          <li>Scanned pages are OCR'd when RapidOCR is available; the shipped model reads Latin script only.</li>
           <li>Multi-column layouts and heavy footnotes can interleave text; citations still point to the right page.</li>
+          <li>“Same narration in other collections” compares against a bundled corpus of the five canonical collections. It is a similarity match, not a scholarly cross-reference — verify before relying on it.</li>
           <li>Authenticity gradings are shown <em>only when the printed book states them</em> — the app never grades narrations itself.</li>
           <li>AI answers can be wrong. Always verify against the highlighted source passage before acting on a religious matter.</li>
         </ul>

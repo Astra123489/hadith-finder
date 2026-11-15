@@ -85,7 +85,7 @@ export default function App() {
   }, []);
 
   const openCitation = useCallback(
-    (citation: Citation, tag: string) => {
+    (citation: Citation) => {
       const book = books.find((b) => b.id === citation.book_id);
       if (!book) return;
       setViewer({
@@ -93,7 +93,7 @@ export default function App() {
         title: `${citation.book_title} — p. ${citation.page_start + 1}`,
         page: citation.page_start,
         spans: citation.spans,
-        tag,
+        tag: `S${citation.source_index}`,
       });
     },
     [books],
