@@ -99,12 +99,16 @@ def _is_not_found(answer: str) -> bool:
 
 def _parallels(conn, row, titles) -> list[dict]:
     try:
-        found = crossref.find_parallels(
-            conn, row["text"],
-            exclude_collection=crossref._collection_from_title(
-                titles.get(row["book_id"], ""), crossref.collections(conn)),
-        )
-    except Exception:
+        # Build/verify the bundled corpus index before reading its metadata:
+        # on a fresh library the tables do not exist yet.
+        crossref.ensure_index(conn)
+        exclude = crossref._collection_from_title(
+            titles.get(row["book_id"], ""), crossref.collections(conn))
+        found = crossref.find_parallels(conn, row["text"], exclude_collection=exclude)
+    except Exception as exc:  # never fail an answer over a cross-reference
+        import sys
+
+        print(f"crossref: {exc}", file=sys.stderr)
         return []
     names = {c["slug"]: c for c in crossref.collections(conn)}
     for match in found:

@@ -122,7 +122,10 @@ def ensure_index(conn, notify=None) -> dict:
 
 
 def collections(conn) -> list[dict]:
-    row = conn.execute("SELECT value FROM xref_meta WHERE key='collections'").fetchone()
+    try:
+        row = conn.execute("SELECT value FROM xref_meta WHERE key='collections'").fetchone()
+    except Exception:
+        return []  # index not built yet
     return json.loads(row["value"]) if row else []
 
 

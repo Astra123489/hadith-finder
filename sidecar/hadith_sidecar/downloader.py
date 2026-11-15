@@ -156,7 +156,11 @@ def _download_file(url: str, target: Path, size: int, notify_cb, chunk: int = 1 
     try:
         with urllib.request.urlopen(req, timeout=60) as resp, open(part, mode) as out:
             if existing and resp.status != 206:
-                out.seek(0)  # server ignored Range — rewrite from scratch
+                # Server ignored Range: the body is the whole file. In append
+                # mode a bare seek(0) still writes at EOF, which silently
+                # corrupted the .part — truncate it instead.
+                out.seek(0)
+                out.truncate(0)
                 downloaded = 0
             while True:
                 buf = resp.read(chunk)
