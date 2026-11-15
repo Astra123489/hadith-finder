@@ -10,6 +10,8 @@ export default function SettingsView() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ModelKey | null>(null);
   const [llmBusy, setLlmBusy] = useState(false);
+  const [ctxValue, setCtxValue] = useState("6144");
+  const [ctxBusy, setCtxBusy] = useState(false);
   const [progress, setProgress] = useState<Record<ModelKey, DownloadProgress | null>>({
     llm: null, embedder: null, reranker: null,
   });
@@ -26,6 +28,30 @@ export default function SettingsView() {
     }).then((fn) => (unlisten = fn));
     return () => unlisten?.();
   }, []);
+
+  useEffect(() => {
+    const ctx = models?.llm_active?.ctx;
+    if (ctx) setCtxValue(String(ctx));
+  }, [models?.llm_active?.ctx]);
+
+  const saveCtx = async (value?: number) => {
+    const n = value ?? Number(ctxValue);
+    if (!Number.isFinite(n) || n <= 0) {
+      setError("Context length must be a whole number of tokens.");
+      return;
+    }
+    setCtxBusy(true);
+    setError(null);
+    try {
+      const res = await api.setLlmCtx(Math.round(n));
+      setCtxValue(String(res.llm_active.ctx));
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCtxBusy(false);
+    }
+  };
 
   const chooseGguf = async () => {
     const picked = await open({
@@ -119,6 +145,44 @@ export default function SettingsView() {
         ) : (
           <p>…</p>
         )}
+        {models?.llm_active && (
+          <div style={{ marginTop: 14 }}>
+            <div className="book-sub" style={{ marginBottom: 6 }}>Context window</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {[2048, 4096, 6144, 8192, 16384, 32768].map((n) => (
+                <button
+                  key={n}
+                  className={`scope-chip ${Number(ctxValue) === n ? "on" : ""}`}
+                  onClick={() => saveCtx(n)}
+                  disabled={ctxBusy}
+                >
+                  {n}
+                </button>
+              ))}
+              <input
+                className="page-input"
+                type="number"
+                min={models.llm_active.ctx_min}
+                max={models.llm_active.ctx_max}
+                step={256}
+                value={ctxValue}
+                onChange={(e) => setCtxValue(e.target.value)}
+                style={{ width: 108 }}
+                aria-label="Context length in tokens"
+              />
+              <button className="btn" onClick={() => saveCtx()} disabled={ctxBusy}>
+                {ctxBusy ? "Saving…" : "Save"}
+              </button>
+              <span className="ask-hint">tokens · default {models.llm_active.ctx_default}</span>
+            </div>
+            <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+              The context window is the room for the retrieved excerpts plus the answer. Larger
+              windows fit longer passages but use more RAM and make the first token slower; the
+              model supports up to {models.llm_active.ctx_max.toLocaleString()} tokens. Takes effect
+              on your next question.
+            </p>
+          </div>
+        )}
         <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-faint)" }}>
           Any GGUF file works — including one you already have in LM Studio or Ollama. The model is
           loaded on this device; switching models takes effect on the next question and does not
@@ -131,7 +195,7 @@ export default function SettingsView() {
         <p>
           Hadith Finder is powered by three small open models that run fully locally. Downloaded once
           into your data folder (resumable if interrupted) — they are never shared with anyone, and
-          they are free: Qwen (Alibaba, Apache-2.0) and BGE models (BAAI, MIT).
+          they are free: Gemma 4 (Google, Apache-2.0) and BGE models (BAAI, MIT).
         </p>
         <div className="library-list" style={{ marginTop: 14 }}>
           {models && modelKeys.map((key) => {
@@ -227,8 +291,8 @@ export default function SettingsView() {
         <h2>License & credits</h2>
         <p>
           Hadith Finder itself is open source. It ships without any book content — you import your own
-          PDFs. Models belong to their authors (Qwen team at Alibaba, BAAI) under their respective free
-          licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
+          PDFs. Models belong to their authors (Google DeepMind — Gemma; the abliterated Gemma build
+          is by TrevorJS; embeddings and reranking by BAAI) under their respective free licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
           publishers — use copies you're entitled to keep.
         </p>
         <p style={{ color: "var(--text-faint)" }}>Version 0.1.0 · Not affiliated with any religious authority.</p>

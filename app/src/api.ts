@@ -70,6 +70,10 @@ export interface ActiveModel {
   exists: boolean;
   size: number;
   custom: boolean;
+  ctx: number;
+  ctx_default: number;
+  ctx_min: number;
+  ctx_max: number;
 }
 
 export type ModelsStatus = Record<"llm" | "embedder" | "reranker", ModelInfo> & {
@@ -212,6 +216,24 @@ const demoApi = {
         exists: true,
         size: 4967490080,
         custom: true,
+        ctx: 6144,
+        ctx_default: 6144,
+        ctx_min: 1024,
+        ctx_max: 131072,
+      },
+    }),
+  setLlmCtx: (_ctx: number) =>
+    Promise.resolve({
+      llm_active: {
+        name: "gemma-4-E2B-it-uncensored-Q8_0",
+        path: "(preview)",
+        exists: true,
+        size: 4967490080,
+        custom: true,
+        ctx: _ctx,
+        ctx_default: 6144,
+        ctx_min: 1024,
+        ctx_max: 131072,
       },
     }),
   onProgress: () => Promise.resolve(() => {}),
@@ -248,6 +270,9 @@ const realApi = {
 
   setLlm: (path: string | null) =>
     invoke<{ llm_active: ActiveModel }>("set_llm", { path }),
+
+  setLlmCtx: (ctx: number) =>
+    invoke<{ llm_active: ActiveModel }>("set_llm_ctx", { ctx }),
 
   onProgress: (cb: (p: Progress) => void): Promise<UnlistenFn> =>
     listen<Progress>("sidecar-progress", (e) => cb(e.payload)),

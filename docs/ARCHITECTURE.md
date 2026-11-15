@@ -107,7 +107,7 @@ One SQLite file per library (`library.haddb`):
 
 | Role | Model | License | Size Q4_K_M |
 |------|-------|---------|-------------|
-| Default | Qwen3-8B-Instruct (thinking toggle: off = Fast, on = Careful) | Apache-2.0 | ~5.2 GB |
+| Default | Gemma 4 E2B Instruct Q8_0 (thinking toggle: off = Fast, on = Careful) | Apache-2.0 | ~5.0 GB |
 | Arabic-first option (settings) | Falcon-H1-Arabic-7B | Apache-2.0 | ~4.7 GB |
 | Fast mode for weak CPUs | Qwen3-4B | Apache-2.0 | ~2.5 GB |
 | Embeddings | BGE-M3 (dense arm) | MIT | ~1.1 GB (int8 ONNX) |

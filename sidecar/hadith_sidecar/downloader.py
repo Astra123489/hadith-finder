@@ -14,6 +14,7 @@ writes.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -27,16 +28,17 @@ LIB_ENV = "HADITH_LIBRARY"
 
 MODEL_CATALOG: dict[str, dict] = {
     "llm": {
-        "name": "Qwen3-8B-Instruct (Q4_K_M)",
+        "name": "Gemma 4 E2B Instruct (Q8_0)",
         "purpose": "Answers your questions, grounded only in the highlighted sources",
         "license": "Apache-2.0",
         "dir": "llm",
-        "total_bytes": 5027783488,
+        "total_bytes": 4967490080,
         "files": [
             {
-                "name": "Qwen3-8B-Q4_K_M.gguf",
-                "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
-                "size": 5027783488,
+                "name": "gemma-4-E2B-it-uncensored-Q8_0.gguf",
+                "url": "https://huggingface.co/TrevorJS/gemma-4-E2B-it-uncensored-GGUF/resolve/main/gemma-4-E2B-it-uncensored-Q8_0.gguf",
+                "size": 4967490080,
+                "sha256": "a3fc3a77309cc97b3696e93d439fd6bc2b45b79360d2dacde2a9c3068be7b34c",
             },
         ],
     },
@@ -96,7 +98,7 @@ def model_dir(model_id: str) -> Path:
 
 
 def default_llm_path() -> Path:
-    return model_dir("llm") / "Qwen3-8B-Q4_K_M.gguf"
+    return model_dir("llm") / MODEL_CATALOG["llm"]["files"][0]["name"]
 
 
 def _file_ok(path: Path, expected_size: int) -> bool:
@@ -139,7 +141,8 @@ def status() -> dict:
     return out
 
 
-def _download_file(url: str, target: Path, size: int, notify_cb, chunk: int = 1 << 20) -> None:
+def _download_file(url: str, target: Path, size: int, notify_cb, chunk: int = 1 << 20,
+                   sha256: str | None = None) -> None:
     part = target.with_suffix(target.suffix + ".part")
     existing = part.stat().st_size if part.is_file() else 0
     headers = {}
@@ -182,6 +185,17 @@ def _download_file(url: str, target: Path, size: int, notify_cb, chunk: int = 1 
             f"download incomplete for {target.name}: expected {size} bytes, got {final_size}. "
             "Check your connection and retry — the download resumes."
         )
+    if sha256:
+        digest = hashlib.sha256()
+        with open(part, "rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(block)
+        if digest.hexdigest().lower() != sha256.lower():
+            part.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"checksum mismatch for {target.name}: the file does not match the published "
+                "hash. The partial download was deleted — retry."
+            )
     part.replace(target)
 
 
@@ -197,6 +211,7 @@ def download_model(model_id: str, notify) -> dict:
         if _file_ok(target, f["size"]):
             continue
         url, size, name = f["url"], f["size"], f["name"]
+        sha = f.get("sha256")
 
         def cb(downloaded: int, total: int, _name=name, _i=index):
             notify(
@@ -205,7 +220,7 @@ def download_model(model_id: str, notify) -> dict:
                 file_index=_i, file_total=files_total,
             )
 
-        _download_file(url, target, size, cb)
+        _download_file(url, target, size, cb, sha256=sha)
     # final integrity pass
     missing = [f["name"] for f in spec["files"] if not _file_ok(dest_dir / f["name"], f["size"])]
     if missing:

@@ -43,7 +43,8 @@ def _embedder():
 def _llm():
     if _state["llm"] is None:
         stored = db.get_meta(_conn(), "llm_path")
-        _state["llm"] = get_llm(stored=stored)
+        ctx = db.get_meta(_conn(), "llm_ctx")
+        _state["llm"] = get_llm(stored=stored, stored_ctx=ctx)
     return _state["llm"]
 
 
@@ -209,7 +210,7 @@ def _ask(params):
 def _llm_info() -> dict:
     from .llm import active_model_info
 
-    return active_model_info(db.get_meta(_conn(), "llm_path"))
+    return active_model_info(db.get_meta(_conn(), "llm_path"), db.get_meta(_conn(), "llm_ctx"))
 
 
 def _models_status(_params):
@@ -222,22 +223,44 @@ def _models_status(_params):
 
 
 def _set_llm(params):
-    """Point the app at a local GGUF (e.g. a model already in LM Studio)."""
+    """Configure the answer model: a local GGUF path and/or its context window."""
+    from .llm import MAX_CTX, MIN_CTX
+
     conn = _conn()
-    path = params.get("path")
-    if path is None or str(path).strip() == "":
-        conn.execute("DELETE FROM meta WHERE key = 'llm_path'")
+    changed = False
+
+    if "path" in params:
+        path = params.get("path")
+        if path is None or str(path).strip() == "":
+            conn.execute("DELETE FROM meta WHERE key = 'llm_path'")
+        else:
+            candidate = Path(str(path)).expanduser()
+            if not candidate.is_file():
+                raise FileNotFoundError(f"no such model file: {candidate}")
+            if candidate.suffix.lower() != ".gguf":
+                raise ValueError(f"not a GGUF model file: {candidate.name}")
+            db.set_meta(conn, "llm_path", str(candidate))
+        changed = True
+
+    if "ctx" in params:
+        ctx = params.get("ctx")
+        if ctx is None or str(ctx).strip() == "":
+            conn.execute("DELETE FROM meta WHERE key = 'llm_ctx'")
+        else:
+            try:
+                value = int(ctx)
+            except (TypeError, ValueError):
+                raise ValueError("context length must be a whole number of tokens")
+            if not (MIN_CTX <= value <= MAX_CTX):
+                raise ValueError(
+                    f"context length must be between {MIN_CTX} and {MAX_CTX} tokens"
+                )
+            db.set_meta(conn, "llm_ctx", str((value // 256) * 256))
+        changed = True
+
+    if changed:
         conn.commit()
-        _state["llm"] = None
-        return {"llm_active": _llm_info()}
-    candidate = Path(str(path)).expanduser()
-    if not candidate.is_file():
-        raise FileNotFoundError(f"no such model file: {candidate}")
-    if candidate.suffix.lower() != ".gguf":
-        raise ValueError(f"not a GGUF model file: {candidate.name}")
-    db.set_meta(conn, "llm_path", str(candidate))
-    conn.commit()
-    _state["llm"] = None  # reload on next question
+        _state["llm"] = None  # reload on next question
     return {"llm_active": _llm_info()}
 
 

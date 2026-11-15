@@ -121,6 +121,15 @@ async fn set_llm(app: AppHandle, path: Option<String>) -> Result<Value, String> 
 }
 
 #[tauri::command]
+async fn set_llm_ctx(app: AppHandle, ctx: Option<i64>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "set_llm", json!({ "ctx": ctx }), 120)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn download_model(app: AppHandle, model: String) -> Result<Value, String> {
     if !matches!(model.as_str(), "llm" | "embedder" | "reranker") {
         return Err("model must be one of: llm, embedder, reranker".into());
@@ -166,6 +175,7 @@ pub fn run() {
             ask,
             models_status,
             set_llm,
+            set_llm_ctx,
             download_model,
             stats,
         ])

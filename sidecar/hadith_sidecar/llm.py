@@ -1,7 +1,7 @@
 """LLM providers.
 
-Production: llama.cpp via llama-cpp-python (MIT), model = Qwen3-8B-Instruct
-Q4_K_M by default (Apache-2.0). The app ships with no weights; the model is
+Production: llama.cpp via llama-cpp-python (MIT), model = Gemma 4 E2B Instruct
+Q8_0 by default (Apache-2.0). The app ships with no weights; the model is
 downloaded on first run into the user's data dir (see docs/ARCHITECTURE.md).
 
 The chat template comes from the GGUF file itself (llama.cpp reads its
@@ -21,7 +21,28 @@ import re
 from pathlib import Path
 
 LLM_PATH_ENV = "HADITH_LLM_GGUF"
+DEFAULT_CTX = 6144
+MIN_CTX = 1024
+MAX_CTX = 131072
 _STOP = ["<|im_end|>", "<|endoftext|>"]
+
+
+def resolve_ctx(stored_ctx=None, explicit=None) -> int:
+    """Context window (tokens) to load the model with.
+
+    Order: explicit → saved setting → $HADITH_CTX → DEFAULT_CTX. A larger
+    window means more prompt room (more/longer excerpts) at the cost of RAM,
+    so this is a user-facing setting.
+    """
+    raw = explicit if explicit not in (None, "") else stored_ctx
+    if raw in (None, ""):
+        raw = os.environ.get("HADITH_CTX") or DEFAULT_CTX
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_CTX
+    value = max(MIN_CTX, min(MAX_CTX, value))
+    return (value // 256) * 256
 
 
 def resolve_model_path(stored: str | None = None, explicit: str | None = None) -> str:
@@ -45,7 +66,7 @@ def resolve_model_path(stored: str | None = None, explicit: str | None = None) -
     return str(default_llm_path())
 
 
-def active_model_info(stored: str | None = None) -> dict:
+def active_model_info(stored: str | None = None, ctx=None) -> dict:
     path = Path(resolve_model_path(stored))
     exists = path.is_file()
     return {
@@ -54,6 +75,10 @@ def active_model_info(stored: str | None = None) -> dict:
         "exists": exists,
         "size": path.stat().st_size if exists else 0,
         "custom": bool(stored) and str(path) == str(Path(stored).expanduser()),
+        "ctx": resolve_ctx(ctx),
+        "ctx_default": DEFAULT_CTX,
+        "ctx_min": MIN_CTX,
+        "ctx_max": MAX_CTX,
     }
 
 
@@ -87,7 +112,7 @@ class LlamaCppProvider(LLMProvider):
     context_size = 6144
 
     def __init__(self, model_path: str | None = None, *, n_ctx: int | None = None,
-                 stored: str | None = None):
+                 stored: str | None = None, stored_ctx=None):
         self.model_path = resolve_model_path(stored, model_path)
         if not Path(self.model_path).is_file():
             raise RuntimeError(
@@ -102,7 +127,7 @@ class LlamaCppProvider(LLMProvider):
             ) from e
 
         threads = max(1, (os.cpu_count() or 4) // 2)
-        self.context_size = n_ctx or int(os.environ.get("HADITH_CTX") or 6144)
+        self.context_size = resolve_ctx(stored_ctx, n_ctx)
         self.gpu_layers = self._gpu_layers(llama_supports_gpu_offload)
         kwargs = dict(
             model_path=self.model_path,
@@ -243,11 +268,11 @@ class LlamaCppProvider(LLMProvider):
 
 
 def get_llm(kind: str | None = None, *, model_path: str | None = None,
-            stored: str | None = None) -> LLMProvider:
+            stored: str | None = None, stored_ctx=None) -> LLMProvider:
     """kind: 'auto' (llama-cpp, else error), 'llama-cpp', 'echo' (tests only)."""
     kind = (kind or os.environ.get("HADITH_LLM") or "auto").lower()
     if kind == "echo":
         return EchoProvider()
     if kind in ("llama-cpp", "llama_cpp", "auto"):
-        return LlamaCppProvider(model_path=model_path, stored=stored)
+        return LlamaCppProvider(model_path=model_path, stored=stored, stored_ctx=stored_ctx)
     raise ValueError(f"unknown LLM provider: {kind}")

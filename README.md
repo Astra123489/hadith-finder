@@ -70,7 +70,7 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
 
 | Role | Model | License | Size |
 |------|-------|---------|------|
-| Answers | Qwen3-8B-Instruct (Q4_K_M) | Apache-2.0 | ~4.7 GB |
+| Answers | Gemma 4 E2B Instruct (Q8_0) | Apache-2.0 | ~5.0 GB |
 | Retrieval | BGE-M3 (int8 ONNX) | MIT | ~0.55 GB |
 | Reranking | bge-reranker-v2-m3 (int8 ONNX) | MIT | ~0.55 GB |
 
