@@ -25,6 +25,7 @@ export interface TokenProgress {
   op: "token";
   ask_id: string;
   text: string;
+  phase?: "thinking" | "answer";
 }
 
 export interface DownloadProgress {

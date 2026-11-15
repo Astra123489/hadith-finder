@@ -262,6 +262,34 @@ html, body, #root {
 }
 .toggle-pill.on { color: #f5d78a; border-color: var(--gold-line); background: var(--gold-soft); }
 
+.thinking-box {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--gold-line);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+}
+
+.thinking-box summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  list-style: none;
+}
+
+.thinking-box summary::-webkit-details-marker { display: none; }
+
+.thinking-box summary::before { content: "▸ "; }
+
+.thinking-box[open] summary::before { content: "▾ "; }
+
+.thinking-text {
+  margin: 8px 0 0;
+  color: var(--text-faint);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
 .model-pick {
   display: inline-flex;
   align-items: center;

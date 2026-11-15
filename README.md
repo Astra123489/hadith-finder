@@ -46,7 +46,8 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
 - Full-text + semantic hybrid search over your library, with background indexing and
   progress bar.
 - Ask view with a **model selector** for every installed answer model, thinking always on,
-  live streaming answers, citation chips that keep their excerpt number, and source cards with scroll/jump.
+  live streaming answers (reasoning streams into a collapsible *Thinking* block, never as raw
+  channel markup), citation chips that keep their excerpt number, and source cards with scroll/jump.
 - **Same narration in other collections** on every citation (bundled Bukhari/Muslim/Abu
   Dawud/Nasa'i/Ibn Majah corpus, matched offline).
 - **RapidOCR** fallback for scanned or damaged text layers, plus **Rebuild** on any book to

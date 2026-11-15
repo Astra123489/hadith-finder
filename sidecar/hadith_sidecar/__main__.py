@@ -204,10 +204,10 @@ def _ask(params):
         book_ids = [int(b) for b in book_ids]
     ask_id = params.get("ask_id")
 
-    def on_token(text: str) -> None:
+    def on_token(text: str, phase: str = "answer") -> None:
         from . import protocol
 
-        protocol.notify(op="token", ask_id=ask_id, text=text)
+        protocol.notify(op="token", ask_id=ask_id, text=text, phase=phase)
 
     return qa_ask(
         _conn(), query,

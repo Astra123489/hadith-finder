@@ -30,6 +30,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streamed, setStreamed] = useState("");
+  const [thinking, setThinking] = useState("");
   const answerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const askIdRef = useRef<string | null>(null);
@@ -71,7 +72,8 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     api.onProgress((p) => {
       if (p.op !== "token") return;
       if (!askIdRef.current || p.ask_id !== askIdRef.current) return;
-      setStreamed((cur) => cur + p.text);
+      if (p.phase === "thinking") setThinking((cur) => cur + p.text);
+      else setStreamed((cur) => cur + p.text);
     }).then((fn) => (unlisten = fn));
     return () => unlisten?.();
   }, []);
@@ -114,6 +116,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     setError(null);
     setResult(null);
     setStreamed("");
+    setThinking("");
     try {
       const res = await api.ask(q, scope, askId);
       setResult(res);
@@ -125,6 +128,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
       askIdRef.current = null;
       setBusy(false);
       setStreamed("");
+      setThinking("");
     }
   };
 
@@ -242,9 +246,23 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
 
       {error && <div className="error-banner">{error}</div>}
 
-      {busy && streamed && (
+      {busy && (streamed || thinking) && (
         <div className="card answer streaming" dir="auto">
-          <p>{streamed}<span className="cursor">▍</span></p>
+          {thinking && (
+            <details className="thinking-box" open={!streamed}>
+              <summary>{streamed ? "Reasoning" : "Thinking…"}</summary>
+              <p className="thinking-text">
+                {thinking}
+                {!streamed && <span className="cursor">▍</span>}
+              </p>
+            </details>
+          )}
+          {streamed && (
+            <p>
+              {streamed}
+              <span className="cursor">▍</span>
+            </p>
+          )}
           <div className="stream-note">Still writing — sources appear when the answer is finished.</div>
         </div>
       )}

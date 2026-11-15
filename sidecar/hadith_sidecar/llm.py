@@ -132,6 +132,65 @@ def active_model_info(stored: str | None = None, ctx=None) -> dict:
     }
 
 
+_THINK_OPEN = ("<|channel>thought", chr(60) + "think" + chr(62))
+_THINK_CLOSE = ("<channel|>", chr(60) + chr(47) + "think" + chr(62))
+
+
+class ThoughtStream:
+    """Turn raw model deltas into clean (phase, text) pieces.
+
+    Gemma 4 wraps its reasoning in a `<|channel>thought … <channel|>` block and
+    other instruct models use ` thinking … </think>`. The markers arrive split
+    across deltas (e.g. "<|chan" then "nel>thought"), so a trailing partial
+    marker is held back until it can be classified instead of being shown as
+    raw markup.
+    """
+
+    THINKING = "thinking"
+    ANSWER = "answer"
+
+    def __init__(self):
+        self.phase = self.ANSWER
+        self._buf = ""
+
+    def feed(self, delta: str) -> list[tuple[str, str]]:
+        self._buf += delta
+        return self._drain(final=False)
+
+    def flush(self) -> list[tuple[str, str]]:
+        return self._drain(final=True)
+
+    def _drain(self, final: bool) -> list[tuple[str, str]]:
+        events: list[tuple[str, str]] = []
+        while self._buf:
+            markers = _THINK_CLOSE if self.phase == self.THINKING else _THINK_OPEN
+            hit = None
+            for m in markers:
+                i = self._buf.find(m)
+                if i >= 0 and (hit is None or i < hit[0]):
+                    hit = (i, m)
+            if hit:
+                i, marker = hit
+                if i:
+                    events.append((self.phase, self._buf[:i]))
+                self._buf = self._buf[i + len(marker):]
+                self.phase = self.ANSWER if self.phase == self.THINKING else self.THINKING
+                continue
+            keep = 0
+            if not final:
+                for m in markers:
+                    for k in range(min(len(m) - 1, len(self._buf)), 0, -1):
+                        if self._buf.endswith(m[:k]):
+                            keep = max(keep, k)
+                            break
+            emit = self._buf[: len(self._buf) - keep] if keep else self._buf
+            if emit:
+                events.append((self.phase, emit))
+                self._buf = self._buf[len(emit):]
+            break
+        return events
+
+
 class LLMProvider:
     name = "abstract"
 
@@ -151,7 +210,7 @@ class EchoProvider(LLMProvider):
         cited = ", ".join(f"[{r}]" for r in refs[:2])
         text = f"Echo answer grounded in the excerpts {cited}."
         if on_token:
-            on_token(text)
+            on_token(text, ThoughtStream.ANSWER)
         return text
 
 
@@ -281,18 +340,25 @@ class LlamaCppProvider(LLMProvider):
                                    temperature=temperature, stream=False)
             return self._strip_think(self._text_of(out).strip())
 
-        pieces: list[str] = []
+        stream = ThoughtStream()
+        answer: list[str] = []
+
+        def emit(events):
+            for phase, text in events:
+                if phase == ThoughtStream.ANSWER:
+                    answer.append(text)
+                try:
+                    on_token(text, phase)
+                except Exception:
+                    pass
+
         for part in self._completion(system, user, max_tokens=max_tokens,
                                      temperature=temperature, stream=True):
             delta = self._delta_of(part)
-            if not delta:
-                continue
-            pieces.append(delta)
-            try:
-                on_token(delta)
-            except Exception:
-                pass
-        return self._strip_think("".join(pieces).strip())
+            if delta:
+                emit(stream.feed(delta))
+        emit(stream.flush())
+        return self._strip_think("".join(answer).strip())
 
     @staticmethod
     def _strip_think(text: str) -> str:
