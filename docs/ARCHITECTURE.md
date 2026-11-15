@@ -117,6 +117,9 @@ One SQLite file per library (`library.haddb`):
   not bundled — installer stays ~40 MB.
 - 8B on pure CPU ≈ 2–5 tok/s (usable), much faster with GPU offload (the bundled
   llama.cpp build is Vulkan, so NVIDIA/AMD/Intel all work).
+- Gemma is prompted by hand in its own turn format (`<|turn>system` … `<|turn>model`) with the
+  model's think control token, because llama-cpp-python 0.3.x cannot pass `chat_template_kwargs`
+  and its template leaves thinking off by default. Other models keep using the template.
 - Streaming goes through `ThoughtStream`, which splits deltas into `thinking` / `answer`
   phases and holds back partial markers, so neither Gemma's channel tokens nor Qwen's think
   tag ever reach the live pane.

@@ -259,6 +259,15 @@ class LlamaCppProvider(LLMProvider):
             self._llm = Llama(**dict(kwargs, n_gpu_layers=0))
         self.gpu = gpu_status(self.gpu_layers)
         self._chat_ok = True
+        # Gemma 4 only reasons when its template is told to, and
+        # llama-cpp-python 0.3.x cannot pass template kwargs, so its prompt is
+        # built by hand below with the model's own think control token.
+        arch = ""
+        try:
+            arch = str(self._llm.metadata.get("general.architecture") or "")
+        except Exception:
+            pass
+        self.thinking = arch.startswith("gemma")
 
     @staticmethod
     def _gpu_layers(supports) -> int:
@@ -289,9 +298,28 @@ class LlamaCppProvider(LLMProvider):
             f"<|im_start|>assistant\n"
         )
 
+    def _gemma_prompt(self, system: str, user: str) -> str:
+        """Gemma 4 turn format with thinking turned on."""
+        think = chr(60) + "|think|" + chr(62)
+        nl = chr(10)
+        return (
+            "<|turn>system" + nl + think + system + "<turn|>" + nl
+            + "<|turn>user" + nl + user + "<turn|>" + nl
+            + "<|turn>model" + nl
+        )
+
     def _completion(self, system: str, user: str, *, max_tokens: int,
                     temperature: float, stream: bool):
         """Chat completion via the model's own template, with a ChatML fallback."""
+        if self.thinking:
+            return self._llm.create_completion(
+                prompt=self._gemma_prompt(system, user),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                repeat_penalty=1.05,
+                stop=list(_STOP) + ["<turn|>"],
+                stream=stream,
+            )
         if self._chat_ok:
             try:
                 return self._llm.create_chat_completion(
@@ -335,10 +363,17 @@ class LlamaCppProvider(LLMProvider):
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
                  temperature: float = 0.2, on_token=None) -> str:
+        if self.thinking:
+            # Reasoning is emitted before the answer; give it room.
+            max_tokens = max(max_tokens, 768)
         if on_token is None:
             out = self._completion(system, user, max_tokens=max_tokens,
                                    temperature=temperature, stream=False)
-            return self._strip_think(self._text_of(out).strip())
+            raw = self._text_of(out)
+            stream = ThoughtStream()
+            events = stream.feed(raw) + stream.flush()
+            answer = "".join(t for phase, t in events if phase == ThoughtStream.ANSWER)
+            return self._strip_think(answer.strip() or raw.strip())
 
         stream = ThoughtStream()
         answer: list[str] = []
