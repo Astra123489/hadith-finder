@@ -62,7 +62,7 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
       canvas.height = Math.floor(viewport.height);
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
-      await pageObj.render({ canvas, canvasContext: ctx, viewport }).promise;
+      await pageObj.render({ canvasContext: ctx, viewport }).promise;
       if (cancelled) return;
       if (stageRef.current && overlayRef.current) {
         stageRef.current.style.width = `${viewport.width}px`;

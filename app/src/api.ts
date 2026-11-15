@@ -64,6 +64,14 @@ export interface ModelInfo {
   files: { name: string; size: number; installed: boolean }[];
 }
 
+export interface GpuStatus {
+  available: boolean;
+  device: string | null;
+  vram_total_mb: number | null;
+  vram_free_mb: number | null;
+  layers: number | null;
+}
+
 export interface ActiveModel {
   name: string;
   path: string;
@@ -74,6 +82,7 @@ export interface ActiveModel {
   ctx_default: number;
   ctx_min: number;
   ctx_max: number;
+  gpu: GpuStatus;
 }
 
 export type ModelsStatus = Record<"llm" | "embedder" | "reranker", ModelInfo> & {
@@ -220,6 +229,7 @@ const demoApi = {
         ctx_default: 6144,
         ctx_min: 1024,
         ctx_max: 131072,
+        gpu: { available: true, device: "Demo GPU", vram_total_mb: 8192, vram_free_mb: 7168, layers: -1 },
       },
     }),
   setLlmCtx: (_ctx: number) =>
@@ -234,6 +244,7 @@ const demoApi = {
         ctx_default: 6144,
         ctx_min: 1024,
         ctx_max: 131072,
+        gpu: { available: true, device: "Demo GPU", vram_total_mb: 8192, vram_free_mb: 7168, layers: -1 },
       },
     }),
   onProgress: () => Promise.resolve(() => {}),

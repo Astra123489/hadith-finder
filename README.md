@@ -74,8 +74,12 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
 | Retrieval | BGE-M3 (int8 ONNX) | MIT | ~0.55 GB |
 | Reranking | bge-reranker-v2-m3 (int8 ONNX) | MIT | ~0.55 GB |
 
-16 GB RAM is enough; an entry GPU or CPU-only works (slower). Everything runs on-device —
-your library never leaves your computer, and it works offline after the one-time download.
+16 GB RAM is enough; the answer model is offloaded to your graphics card when one is
+available (the bundled llama.cpp build uses Vulkan, so NVIDIA, AMD and Intel GPUs all
+work; it falls back to the CPU when the model does not fit in VRAM). Settings → Answer
+model shows which device is in use and lets you trade context length for memory.
+Everything runs on-device — your library never leaves your computer, and it works
+offline after the one-time download.
 
 ## Install (end users)
 

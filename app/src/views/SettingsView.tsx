@@ -145,6 +145,21 @@ export default function SettingsView() {
         ) : (
           <p>…</p>
         )}
+        {models?.llm_active?.gpu && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--text-dim)" }}>
+            {models.llm_active.gpu.available ? (
+              <>
+                GPU acceleration: <strong>{models.llm_active.gpu.device}</strong>
+                {models.llm_active.gpu.vram_free_mb
+                  ? ` · ${(models.llm_active.gpu.vram_free_mb / 1024).toFixed(1)} GB free`
+                  : ""}{" "}
+                — answers run on the graphics card.
+              </>
+            ) : (
+              <>GPU acceleration: unavailable in this build — answers run on the CPU (slower).</>
+            )}
+          </div>
+        )}
         {models?.llm_active && (
           <div style={{ marginTop: 14 }}>
             <div className="book-sub" style={{ marginBottom: 6 }}>Context window</div>

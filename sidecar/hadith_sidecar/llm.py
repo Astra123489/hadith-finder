@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from pathlib import Path
 
 LLM_PATH_ENV = "HADITH_LLM_GGUF"
@@ -25,6 +26,54 @@ DEFAULT_CTX = 6144
 MIN_CTX = 1024
 MAX_CTX = 131072
 _STOP = ["<|im_end|>", "<|endoftext|>"]
+
+
+def _nvidia_smi() -> dict | None:
+    """Device name and VRAM from nvidia-smi (absent on non-NVIDIA machines)."""
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        name, total, free = [p.strip() for p in out.stdout.strip().splitlines()[0].split(",")][:3]
+        return {"device": name, "vram_total_mb": int(total), "vram_free_mb": int(free)}
+    except Exception:
+        return None
+
+
+def gpu_status(layers: int | None = None) -> dict:
+    """Whether the answer model can run on the GPU, and on which device.
+
+    llama-cpp-python wheels are either CPU-only or GPU-enabled. A CPU-only
+    wheel reports no offload support and llama.cpp then ignores n_gpu_layers,
+    so the app surfaces this in Settings instead of leaving users guessing why
+    answers are slow.
+    """
+    try:
+        from llama_cpp import llama_supports_gpu_offload
+
+        available = bool(llama_supports_gpu_offload())
+    except Exception:
+        available = False
+    info = {
+        "available": available,
+        "device": None,
+        "vram_total_mb": None,
+        "vram_free_mb": None,
+        "layers": layers,
+    }
+    if available:
+        info.update(_nvidia_smi() or {})
+        if info["device"] is None:
+            info["device"] = "GPU"
+    return info
 
 
 def resolve_ctx(stored_ctx=None, explicit=None) -> int:
@@ -79,6 +128,7 @@ def active_model_info(stored: str | None = None, ctx=None) -> dict:
         "ctx_default": DEFAULT_CTX,
         "ctx_min": MIN_CTX,
         "ctx_max": MAX_CTX,
+        "gpu": gpu_status(),
     }
 
 
@@ -137,12 +187,20 @@ class LlamaCppProvider(LLMProvider):
             n_gpu_layers=self.gpu_layers,
             verbose=False,
         )
-        # Flash attention cuts prompt-processing time noticeably on CPU builds
-        # that support it; older builds reject the flag, so fall back quietly.
+        # Flash attention cuts prompt-processing time on both CPU and GPU
+        # builds; older builds reject the flag, so fall back quietly.
         try:
             self._llm = Llama(flash_attn=True, **kwargs)
         except (TypeError, ValueError):
             self._llm = Llama(**kwargs)
+        except RuntimeError:
+            # The GPU could not take the model (driver, VRAM, backend). Better a
+            # slow answer on the CPU than a hard failure.
+            if not self.gpu_layers:
+                raise
+            self.gpu_layers = 0
+            self._llm = Llama(**dict(kwargs, n_gpu_layers=0))
+        self.gpu = gpu_status(self.gpu_layers)
         self._chat_ok = True
 
     @staticmethod
@@ -159,14 +217,18 @@ class LlamaCppProvider(LLMProvider):
             return 0
 
     def _messages(self, system: str, user: str, careful: bool) -> list[dict]:
-        prompt = user if careful else user + "\n/no_think"
+        # Qwen3 toggles reasoning with a soft switch in the prompt; other
+        # models (Gemma, Llama, ...) would just see it as stray text.
+        soft_switch = not careful and "qwen" in Path(self.model_path).name.lower()
+        prompt = user + ("\n/no_think" if soft_switch else "")
         return [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ]
 
     def _chatml(self, system: str, user: str, careful: bool) -> str:
-        prefill = "" if careful else "\n\n"
+        soft_switch = not careful and "qwen" in Path(self.model_path).name.lower()
+        prefill = "\n\n" if soft_switch else ""
         return (
             f"<|im_start|>system\n{system}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n"
