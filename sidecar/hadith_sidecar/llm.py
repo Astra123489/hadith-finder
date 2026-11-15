@@ -104,7 +104,7 @@ class LlamaCppProvider(LLMProvider):
         threads = max(1, (os.cpu_count() or 4) // 2)
         self.context_size = n_ctx or int(os.environ.get("HADITH_CTX") or 6144)
         self.gpu_layers = self._gpu_layers(llama_supports_gpu_offload)
-        self._llm = Llama(
+        kwargs = dict(
             model_path=self.model_path,
             n_ctx=self.context_size,
             n_threads=threads,
@@ -112,6 +112,12 @@ class LlamaCppProvider(LLMProvider):
             n_gpu_layers=self.gpu_layers,
             verbose=False,
         )
+        # Flash attention cuts prompt-processing time noticeably on CPU builds
+        # that support it; older builds reject the flag, so fall back quietly.
+        try:
+            self._llm = Llama(flash_attn=True, **kwargs)
+        except (TypeError, ValueError):
+            self._llm = Llama(**kwargs)
         self._chat_ok = True
 
     @staticmethod
