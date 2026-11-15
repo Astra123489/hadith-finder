@@ -112,6 +112,15 @@ async fn models_status(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn set_llm(app: AppHandle, path: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "set_llm", json!({ "path": path }), 120)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn download_model(app: AppHandle, model: String) -> Result<Value, String> {
     if !matches!(model.as_str(), "llm" | "embedder" | "reranker") {
         return Err("model must be one of: llm, embedder, reranker".into());
@@ -156,6 +165,7 @@ pub fn run() {
             delete_book,
             ask,
             models_status,
+            set_llm,
             download_model,
             stats,
         ])

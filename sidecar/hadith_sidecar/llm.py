@@ -24,6 +24,39 @@ LLM_PATH_ENV = "HADITH_LLM_GGUF"
 _STOP = ["<|im_end|>", "<|endoftext|>"]
 
 
+def resolve_model_path(stored: str | None = None, explicit: str | None = None) -> str:
+    """Pick the GGUF to load.
+
+    Order: explicit argument → $HADITH_LLM_GGUF → the path saved from Settings →
+    any .gguf in <models>/llm (newest first) → the built-in download location.
+    This is what lets a user point the app at a model they already have
+    (LM Studio, Ollama's blobs, a hand-copied file) without moving it.
+    """
+    for candidate in (explicit, os.environ.get(LLM_PATH_ENV), stored):
+        if candidate and Path(candidate).expanduser().is_file():
+            return str(Path(candidate).expanduser())
+    from .downloader import default_llm_path, model_dir
+
+    folder = model_dir("llm")
+    if folder.is_dir():
+        found = sorted(folder.glob("*.gguf"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if found:
+            return str(found[0])
+    return str(default_llm_path())
+
+
+def active_model_info(stored: str | None = None) -> dict:
+    path = Path(resolve_model_path(stored))
+    exists = path.is_file()
+    return {
+        "name": path.stem,
+        "path": str(path),
+        "exists": exists,
+        "size": path.stat().st_size if exists else 0,
+        "custom": bool(stored) and str(path) == str(Path(stored).expanduser()),
+    }
+
+
 class LLMProvider:
     name = "abstract"
 
@@ -53,16 +86,13 @@ class LlamaCppProvider(LLMProvider):
     name = "llama-cpp"
     context_size = 6144
 
-    def __init__(self, model_path: str | None = None, *, n_ctx: int | None = None):
-        if not model_path:
-            from .downloader import default_llm_path
-
-            model_path = os.environ.get(LLM_PATH_ENV) or str(default_llm_path())
-        self.model_path = model_path
+    def __init__(self, model_path: str | None = None, *, n_ctx: int | None = None,
+                 stored: str | None = None):
+        self.model_path = resolve_model_path(stored, model_path)
         if not Path(self.model_path).is_file():
             raise RuntimeError(
-                f"Qwen3 model not downloaded yet — open Settings → AI Models and download it "
-                f"(~4.7 GB, one time). Expected at: {self.model_path}"
+                "No language model found. Download the default model in Settings → AI Models, "
+                f"or choose a local .gguf file. Looked for: {self.model_path}"
             )
         try:
             from llama_cpp import Llama, llama_supports_gpu_offload
@@ -206,11 +236,12 @@ class LlamaCppProvider(LLMProvider):
         return re.sub(r"^.*?</think>\s*", "", text, flags=re.S).strip() if "</think>" in text else text
 
 
-def get_llm(kind: str | None = None) -> LLMProvider:
+def get_llm(kind: str | None = None, *, model_path: str | None = None,
+            stored: str | None = None) -> LLMProvider:
     """kind: 'auto' (llama-cpp, else error), 'llama-cpp', 'echo' (tests only)."""
     kind = (kind or os.environ.get("HADITH_LLM") or "auto").lower()
     if kind == "echo":
         return EchoProvider()
     if kind in ("llama-cpp", "llama_cpp", "auto"):
-        return LlamaCppProvider()
+        return LlamaCppProvider(model_path=model_path, stored=stored)
     raise ValueError(f"unknown LLM provider: {kind}")

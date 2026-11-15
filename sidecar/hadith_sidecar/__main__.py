@@ -42,7 +42,8 @@ def _embedder():
 
 def _llm():
     if _state["llm"] is None:
-        _state["llm"] = get_llm()
+        stored = db.get_meta(_conn(), "llm_path")
+        _state["llm"] = get_llm(stored=stored)
     return _state["llm"]
 
 
@@ -63,6 +64,7 @@ def dispatch(method: str, params: dict):
         "stats": _stats,
         "ask": _ask,
         "models_status": _models_status,
+        "set_llm": _set_llm,
         "download_model": _download_model,
         "shutdown": _shutdown,
     }
@@ -204,12 +206,39 @@ def _ask(params):
     )
 
 
+def _llm_info() -> dict:
+    from .llm import active_model_info
+
+    return active_model_info(db.get_meta(_conn(), "llm_path"))
+
+
 def _models_status(_params):
     from .downloader import status
 
     out = status()
     out["ocr"] = _ocr_status()
+    out["llm_active"] = _llm_info()
     return out
+
+
+def _set_llm(params):
+    """Point the app at a local GGUF (e.g. a model already in LM Studio)."""
+    conn = _conn()
+    path = params.get("path")
+    if path is None or str(path).strip() == "":
+        conn.execute("DELETE FROM meta WHERE key = 'llm_path'")
+        conn.commit()
+        _state["llm"] = None
+        return {"llm_active": _llm_info()}
+    candidate = Path(str(path)).expanduser()
+    if not candidate.is_file():
+        raise FileNotFoundError(f"no such model file: {candidate}")
+    if candidate.suffix.lower() != ".gguf":
+        raise ValueError(f"not a GGUF model file: {candidate.name}")
+    db.set_meta(conn, "llm_path", str(candidate))
+    conn.commit()
+    _state["llm"] = None  # reload on next question
+    return {"llm_active": _llm_info()}
 
 
 def _download_model(params):

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api, formatMB, type DownloadProgress, type ModelsStatus } from "../api";
 
 type ModelKey = "llm" | "embedder" | "reranker";
@@ -8,6 +9,7 @@ export default function SettingsView() {
   const [models, setModels] = useState<ModelsStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<ModelKey | null>(null);
+  const [llmBusy, setLlmBusy] = useState(false);
   const [progress, setProgress] = useState<Record<ModelKey, DownloadProgress | null>>({
     llm: null, embedder: null, reranker: null,
   });
@@ -24,6 +26,38 @@ export default function SettingsView() {
     }).then((fn) => (unlisten = fn));
     return () => unlisten?.();
   }, []);
+
+  const chooseGguf = async () => {
+    const picked = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "GGUF models", extensions: ["gguf"] }],
+    });
+    if (typeof picked !== "string") return;
+    setLlmBusy(true);
+    setError(null);
+    try {
+      await api.setLlm(picked);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLlmBusy(false);
+    }
+  };
+
+  const resetLlm = async () => {
+    setLlmBusy(true);
+    setError(null);
+    try {
+      await api.setLlm(null);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLlmBusy(false);
+    }
+  };
 
   const startDownload = async (model: ModelKey) => {
     setBusy(model);
@@ -50,6 +84,47 @@ export default function SettingsView() {
       <p className="page-sub">Everything runs on this device. No accounts, no servers, no telemetry.</p>
 
       {error && <div className="error-banner">{error}</div>}
+
+      <div className="card settings-section">
+        <h2>Answer model</h2>
+        {models?.llm_active ? (
+          <div className="book-row" style={{ border: "1px solid var(--line)", borderRadius: 12 }}>
+            <div className="book-cover" style={{ height: 46, width: 46, borderRadius: 10 }}>
+              <span style={{ color: models.llm_active.exists ? "var(--green)" : "var(--red)", fontSize: 20 }}>
+                {models.llm_active.exists ? "✓" : "!"}
+              </span>
+            </div>
+            <div className="book-meta">
+              <div className="book-title" style={{ fontSize: 15 }}>{models.llm_active.name}</div>
+              <div className="book-sub" style={{ whiteSpace: "normal" }}>
+                {models.llm_active.custom ? "your own GGUF · " : "downloaded default · "}
+                {formatMB(models.llm_active.size)}
+                {!models.llm_active.exists && " · file is missing"}
+              </div>
+              <div className="book-sub" style={{ whiteSpace: "normal", wordBreak: "break-all" }}>
+                {models.llm_active.path}
+              </div>
+            </div>
+            <div className="book-actions">
+              <button className="btn btn-primary" onClick={chooseGguf} disabled={llmBusy}>
+                {llmBusy ? "Loading…" : "Use a local .gguf…"}
+              </button>
+              {models.llm_active.custom && (
+                <button className="btn btn-ghost" onClick={resetLlm} disabled={llmBusy}>
+                  Use default
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p>…</p>
+        )}
+        <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-faint)" }}>
+          Any GGUF file works — including one you already have in LM Studio or Ollama. The model is
+          loaded on this device; switching models takes effect on the next question and does not
+          require re-indexing (answers only; embeddings are separate).
+        </p>
+      </div>
 
       <div className="card settings-section">
         <h2>AI models — one-time download ({models ? formatMB(models.total_bytes) : "…"})</h2>

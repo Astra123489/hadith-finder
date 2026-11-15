@@ -53,7 +53,9 @@ Accuracy doesn’t come from the model alone. Hadith Finder is a **grounded rese
   re-extract and re-index it after an extractor improvement.
 - Built-in PDF viewer with **highlighted passages**, multi-page citation jumps, arrow-key
   navigation.
-- One-time **AI model download** (~6.2 GB) from Settings with resume support.
+- One-time **AI model download** (~6.2 GB) from Settings with resume support — or point
+  **Settings → Answer model** at any GGUF you already have (LM Studio, Ollama, a hand-copied
+  file). Switching the answer model needs no re-indexing.
 - Open source (AGPL-3.0) — share it with anyone, for free.
 
 ### Roadmap (next)

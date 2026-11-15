@@ -64,10 +64,19 @@ export interface ModelInfo {
   files: { name: string; size: number; installed: boolean }[];
 }
 
+export interface ActiveModel {
+  name: string;
+  path: string;
+  exists: boolean;
+  size: number;
+  custom: boolean;
+}
+
 export type ModelsStatus = Record<"llm" | "embedder" | "reranker", ModelInfo> & {
   all_ready: boolean;
   total_bytes: number;
   ocr?: { mode: string; available: boolean };
+  llm_active?: ActiveModel;
 };
 
 export interface RebuildResult {
@@ -195,6 +204,16 @@ const demoApi = {
     }),
   downloadModel: (model: "llm" | "embedder" | "reranker") =>
     Promise.resolve({ model, ready: true, dir: "demo" }),
+  setLlm: (_path: string | null) =>
+    Promise.resolve({
+      llm_active: {
+        name: "gemma-4-E2B-it-uncensored-Q8_0",
+        path: "(preview)",
+        exists: true,
+        size: 4967490080,
+        custom: true,
+      },
+    }),
   onProgress: () => Promise.resolve(() => {}),
 };
 
@@ -226,6 +245,9 @@ const realApi = {
 
   downloadModel: (model: "llm" | "embedder" | "reranker") =>
     invoke<{ model: string; ready: boolean; dir: string }>("download_model", { model }),
+
+  setLlm: (path: string | null) =>
+    invoke<{ llm_active: ActiveModel }>("set_llm", { path }),
 
   onProgress: (cb: (p: Progress) => void): Promise<UnlistenFn> =>
     listen<Progress>("sidecar-progress", (e) => cb(e.payload)),
