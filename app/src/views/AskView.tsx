@@ -1,5 +1,6 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
+import type { LlmOption } from "../api";
 import type { AskResult, Book, Citation } from "../types";
 import CitationCard, { citationLabel } from "../components/CitationCard";
 
@@ -22,7 +23,9 @@ interface Props {
 export default function AskView({ books, initialScope, onScopeChange, onOpenCitation }: Props) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<number[] | null>(initialScope);
-  const [careful, setCareful] = useState(false);
+  const [llms, setLlms] = useState<LlmOption[]>([]);
+  const [modelPath, setModelPath] = useState("");
+  const [modelBusy, setModelBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AskResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,34 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const askIdRef = useRef<string | null>(null);
 
   useEffect(() => setScope(initialScope), [initialScope]);
+
+  const loadModels = useCallback(async () => {
+    try {
+      const list = await api.listLlms();
+      setLlms(list.llms);
+      setModelPath(list.llms.find((m) => m.selected)?.path ?? list.active);
+    } catch {
+      /* the model picker is optional: answering still works without it */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadModels();
+  }, [loadModels]);
+
+  const pickModel = async (option: LlmOption) => {
+    setModelBusy(true);
+    setError(null);
+    try {
+      await api.setLlm(option.default ? null : option.path);
+      await loadModels();
+    } catch (e) {
+      setError(String(e));
+      await loadModels();
+    } finally {
+      setModelBusy(false);
+    }
+  };
 
   // Live tokens from the sidecar: the answer appears as it is written instead
   // of after the whole (often multi-minute) CPU generation finishes.
@@ -84,7 +115,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     setResult(null);
     setStreamed("");
     try {
-      const res = await api.ask(q, scope, careful, askId);
+      const res = await api.ask(q, scope, askId);
       setResult(res);
       requestAnimationFrame(() => answerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     } catch (err) {
@@ -148,14 +179,27 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           }}
         />
         <div className="ask-row">
-          <button
-            type="button"
-            className={`toggle-pill ${careful ? "on" : ""}`}
-            onClick={() => setCareful((v) => !v)}
-            title="Careful mode: the model reasons step-by-step before answering. Slower, better for explanation-type questions."
-          >
-            {careful ? "✦ Careful (deep reasoning)" : "⚡ Fast"}
-          </button>
+          {llms.length > 0 && (
+            <label className="model-pick" title="The local model that writes the answer">
+              <span>Model</span>
+              <select
+                className="model-select"
+                value={modelPath}
+                disabled={busy || modelBusy}
+                onChange={(e) => {
+                  const next = llms.find((m) => m.path === e.target.value);
+                  if (next) pickModel(next);
+                }}
+              >
+                {llms.map((m) => (
+                  <option key={m.path} value={m.path} disabled={!m.installed}>
+                    {m.name}
+                    {m.installed ? "" : " (not downloaded)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <span className="ask-hint"><span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> to ask</span>
           <div className="spacer" />
           <button

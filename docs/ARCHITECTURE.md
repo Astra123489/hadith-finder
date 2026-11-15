@@ -107,16 +107,17 @@ One SQLite file per library (`library.haddb`):
 
 | Role | Model | License | Size Q4_K_M |
 |------|-------|---------|-------------|
-| Default | Gemma 4 E2B Instruct Q8_0 (thinking toggle: off = Fast, on = Careful) | Apache-2.0 | ~5.0 GB |
+| Default | Gemma 4 E2B Instruct Q8_0 (thinking always on) | Apache-2.0 | ~5.0 GB |
 | Arabic-first option (settings) | Falcon-H1-Arabic-7B | Apache-2.0 | ~4.7 GB |
-| Fast mode for weak CPUs | Qwen3-4B | Apache-2.0 | ~2.5 GB |
+| Lighter option for weak CPUs | Qwen3-4B | Apache-2.0 | ~2.5 GB |
 | Embeddings | BGE-M3 (dense arm) | MIT | ~1.1 GB (int8 ONNX) |
 | Reranker | bge-reranker-v2-m3 | MIT | ~1.1 GB (int8 ONNX) |
 
 - Models are **downloaded on first run** (HuggingFace, SHA-256 verified, resumable),
   not bundled — installer stays ~40 MB.
-- 8B on pure CPU ≈ 2–5 tok/s (usable), faster with partial GPU offload. Careful
-  mode trades latency for reasoning on "explain the meaning" questions.
+- 8B on pure CPU ≈ 2–5 tok/s (usable), much faster with GPU offload (the bundled
+  llama.cpp build is Vulkan, so NVIDIA/AMD/Intel all work). Reasoning is always on;
+  the Ask tab switches between whatever models are installed.
 - Llama excluded (weaker Arabic, restrictive license). 14B+ excluded (too slow here).
 
 ## Highlighting (all three layers)

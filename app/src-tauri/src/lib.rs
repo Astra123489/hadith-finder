@@ -77,7 +77,6 @@ async fn ask(
     app: AppHandle,
     query: String,
     book_ids: Option<Vec<i64>>,
-    careful: bool,
     ask_id: Option<String>,
 ) -> Result<Value, String> {
     let trimmed = query.trim().to_string();
@@ -91,12 +90,20 @@ async fn ask(
             json!({
                 "query": trimmed,
                 "book_ids": book_ids,
-                "careful": careful,
                 "ask_id": ask_id,
             }),
             // CPU inference on an 8B model plus reranking: generous, but finite.
             30 * 60,
         )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_llms(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "list_llms", json!({}), 60)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -174,6 +181,7 @@ pub fn run() {
             delete_book,
             ask,
             models_status,
+            list_llms,
             set_llm,
             set_llm_ctx,
             download_model,

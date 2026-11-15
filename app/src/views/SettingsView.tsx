@@ -255,11 +255,12 @@ export default function SettingsView() {
       </div>
 
       <div className="card settings-section">
-        <h2>Careful vs. Fast answering</h2>
+        <h2>Answer model</h2>
         <p>
-          <strong>Fast</strong> answers directly (best for direct lookups). <strong>Careful</strong> lets the model
-          reason step-by-step first — slower, noticeably stronger for “explain…” and comparison questions.
-          Toggle it in the Ask tab; it applies to the next question only.
+          Thinking is always on: the model reasons before it answers, which is what makes “explain…”
+          and comparison questions reliable. There is no fast/careful switch to tune — instead, pick
+          which installed model writes the answer from the <strong>Model</strong> selector in the Ask tab
+          (the same models are managed above and in the Answer model card).
         </p>
       </div>
 

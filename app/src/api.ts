@@ -64,6 +64,15 @@ export interface ModelInfo {
   files: { name: string; size: number; installed: boolean }[];
 }
 
+export interface LlmOption {
+  path: string;
+  name: string;
+  size: number;
+  installed: boolean;
+  default: boolean;
+  selected: boolean;
+}
+
 export interface GpuStatus {
   available: boolean;
   device: string | null;
@@ -205,6 +214,20 @@ const demoApi = {
   reindexBook: () => Promise.resolve({ book_id: 999, embedded: 14, total: 14 }),
   deleteBook: () => Promise.resolve({ deleted: false }),
   ask: () => Promise.resolve(DEMO_RESULT),
+  listLlms: () =>
+    Promise.resolve({
+      active: "(preview)",
+      llms: [
+        {
+          path: "(preview)",
+          name: "Gemma 4 E2B Instruct (Q8_0)",
+          size: 4967490080,
+          installed: true,
+          default: true,
+          selected: true,
+        },
+      ],
+    }),
   stats: () => Promise.resolve({ books: 1, chunks: 14, embedded: 14 }),
   modelsStatus: () =>
     Promise.resolve({
@@ -268,8 +291,10 @@ const realApi = {
 
   deleteBook: (bookId: number) => invoke<{ deleted: boolean }>("delete_book", { bookId }),
 
-  ask: (query: string, bookIds: number[] | null, careful: boolean, askId?: string) =>
-    invoke<AskResult>("ask", { query, bookIds, careful, askId: askId ?? null }),
+  ask: (query: string, bookIds: number[] | null, askId?: string) =>
+    invoke<AskResult>("ask", { query, bookIds, askId: askId ?? null }),
+
+  listLlms: () => invoke<{ llms: LlmOption[]; active: string }>("list_llms"),
 
   stats: () =>
     invoke<{ books: number; chunks: number; embedded: number }>("stats"),

@@ -66,6 +66,7 @@ def dispatch(method: str, params: dict):
         "ask": _ask,
         "models_status": _models_status,
         "set_llm": _set_llm,
+        "list_llms": _list_llms,
         "download_model": _download_model,
         "shutdown": _shutdown,
     }
@@ -201,7 +202,6 @@ def _ask(params):
         embedder=_embedder(),
         llm=_llm(),
         reranker=_reranker(),
-        careful=bool(params.get("careful")),
         on_token=on_token if ask_id else None,
         ask_id=ask_id,
     )
@@ -220,6 +220,46 @@ def _models_status(_params):
     out["ocr"] = _ocr_status()
     out["llm_active"] = _llm_info()
     return out
+
+
+def _list_llms(_params):
+    """Answer models the user can switch to from the ask screen."""
+    from .downloader import MODEL_CATALOG, default_llm_path, model_dir
+    from .llm import resolve_model_path
+
+    conn = _conn()
+    stored = db.get_meta(conn, "llm_path")
+    active = Path(resolve_model_path(stored))
+    default = default_llm_path()
+    entries = []
+    seen = set()
+
+    def add(path, label=None, is_default=False):
+        p = Path(str(path)).expanduser()
+        key = str(p).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        exists = p.is_file()
+        entries.append({
+            "path": str(p),
+            "name": label or p.stem,
+            "size": p.stat().st_size if exists else 0,
+            "installed": exists,
+            "default": is_default,
+            "selected": key == str(active).lower(),
+        })
+
+    add(default, MODEL_CATALOG["llm"]["name"], True)
+    folder = model_dir("llm")
+    if folder.is_dir():
+        for gguf in sorted(folder.glob("*.gguf"), key=lambda q: q.name.lower()):
+            add(gguf)
+    if stored:
+        add(stored)
+    if not any(e["selected"] for e in entries):
+        add(active)
+    return {"llms": entries, "active": str(active)}
 
 
 def _set_llm(params):

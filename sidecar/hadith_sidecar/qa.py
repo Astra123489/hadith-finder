@@ -121,7 +121,7 @@ def _parallels(conn, row, titles) -> list[dict]:
 
 
 def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker,
-        top_k: int = 5, pool: int = 30, careful: bool = False,
+        top_k: int = 5, pool: int = 30,
         on_token=None, ask_id: str | None = None) -> dict:
     if book_ids is not None and len(book_ids) == 0:
         return {"answer": NOT_FOUND, "citations": [], "retrieved": 0,
@@ -148,7 +148,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         excerpts.append(_excerpt(titles, by_id[h.chunk_id], f"S{i + 1}", query))
     user = "Excerpts:\n\n" + "\n".join(excerpts) + f"\nQuestion: {query}"
 
-    answer = llm.generate(SYSTEM_PROMPT, user, careful=careful, on_token=on_token)
+    answer = llm.generate(SYSTEM_PROMPT, user, on_token=on_token)
 
     if _is_not_found(answer):
         return {"answer": NOT_FOUND, "citations": [], "retrieved": len(hits),

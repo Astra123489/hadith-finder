@@ -136,8 +136,7 @@ class LLMProvider:
     name = "abstract"
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
-                 temperature: float = 0.2, careful: bool = False,
-                 on_token=None) -> str:
+                 temperature: float = 0.2, on_token=None) -> str:
         raise NotImplementedError
 
 
@@ -145,8 +144,7 @@ class EchoProvider(LLMProvider):
     name = "echo"
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
-                 temperature: float = 0.2, careful: bool = False,
-                 on_token=None) -> str:
+                 temperature: float = 0.2, on_token=None) -> str:
         refs = re.findall(r"\[(S\d+)\]", user)
         if not refs:
             return "I could not find this in the loaded books."
@@ -216,32 +214,29 @@ class LlamaCppProvider(LLMProvider):
         except ValueError:
             return 0
 
-    def _messages(self, system: str, user: str, careful: bool) -> list[dict]:
-        # Qwen3 toggles reasoning with a soft switch in the prompt; other
-        # models (Gemma, Llama, ...) would just see it as stray text.
-        soft_switch = not careful and "qwen" in Path(self.model_path).name.lower()
-        prompt = user + ("\n/no_think" if soft_switch else "")
+    def _messages(self, system: str, user: str) -> list[dict]:
+        # The model's own chat template decides how thinking is enabled; the
+        # answer model always reasons before answering, so no soft switch is
+        # appended to the prompt here.
         return [
             {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": user},
         ]
 
-    def _chatml(self, system: str, user: str, careful: bool) -> str:
-        soft_switch = not careful and "qwen" in Path(self.model_path).name.lower()
-        prefill = "\n\n" if soft_switch else ""
+    def _chatml(self, system: str, user: str) -> str:
         return (
             f"<|im_start|>system\n{system}<|im_end|>\n"
             f"<|im_start|>user\n{user}<|im_end|>\n"
-            f"<|im_start|>assistant\n{prefill}"
+            f"<|im_start|>assistant\n"
         )
 
     def _completion(self, system: str, user: str, *, max_tokens: int,
-                    temperature: float, careful: bool, stream: bool):
+                    temperature: float, stream: bool):
         """Chat completion via the model's own template, with a ChatML fallback."""
         if self._chat_ok:
             try:
                 return self._llm.create_chat_completion(
-                    messages=self._messages(system, user, careful),
+                    messages=self._messages(system, user),
                     max_tokens=max_tokens,
                     temperature=temperature,
                     repeat_penalty=1.05,
@@ -251,7 +246,7 @@ class LlamaCppProvider(LLMProvider):
             except Exception:
                 self._chat_ok = False
         return self._llm.create_completion(
-            prompt=self._chatml(system, user, careful),
+            prompt=self._chatml(system, user),
             max_tokens=max_tokens,
             temperature=temperature,
             repeat_penalty=1.05,
@@ -280,53 +275,38 @@ class LlamaCppProvider(LLMProvider):
         return ""
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
-                 temperature: float = 0.2, careful: bool = False,
-                 on_token=None) -> str:
+                 temperature: float = 0.2, on_token=None) -> str:
         if on_token is None:
             out = self._completion(system, user, max_tokens=max_tokens,
-                                   temperature=temperature, careful=careful, stream=False)
-            text = self._text_of(out).strip()
-            return self._strip_think(text, careful)
+                                   temperature=temperature, stream=False)
+            return self._strip_think(self._text_of(out).strip())
 
         pieces: list[str] = []
-        pending = ""
-        started = False
         for part in self._completion(system, user, max_tokens=max_tokens,
-                                     temperature=temperature, careful=careful, stream=True):
+                                     temperature=temperature, stream=True):
             delta = self._delta_of(part)
             if not delta:
                 continue
-            if started:
-                pending = delta
-            else:
-                pending += delta
-                if "</think>" in pending:
-                    pending = pending.split("</think>", 1)[1].lstrip()
-                elif len(pending) > 60 and not pending.lstrip().startswith("<think"):
-                    pass
-                else:
-                    continue
-                started = True
-            if pending:
-                pieces.append(pending)
-                try:
-                    on_token(pending)
-                except Exception:
-                    pass
-                pending = ""
-        if pending:
-            pieces.append(pending)
+            pieces.append(delta)
             try:
-                on_token(pending)
+                on_token(delta)
             except Exception:
                 pass
-        return self._strip_think("".join(pieces).strip(), careful)
+        return self._strip_think("".join(pieces).strip())
 
     @staticmethod
-    def _strip_think(text: str, careful: bool) -> str:
-        if careful:
-            return text
-        return re.sub(r"^.*?</think>\s*", "", text, flags=re.S).strip() if "</think>" in text else text
+    def _strip_think(text: str) -> str:
+        """Keep only the answer when the model writes its reasoning first.
+
+        Thinking is always on and the streamed tokens show it; this only tidies
+        the final text before citations are parsed out of it. Gemma 4 marks the
+        reasoning channel with <channel|>, other instruct models close a reasoning
+        block with </think>.
+        """
+        for marker in ('<channel|>', '</think>'):
+            if marker in text:
+                text = text.rsplit(marker, 1)[1]
+        return re.sub(r"<\|channel>thought\s*", "", text).strip()
 
 
 def get_llm(kind: str | None = None, *, model_path: str | None = None,
