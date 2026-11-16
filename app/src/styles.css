@@ -600,7 +600,6 @@ html, body, #root {
   line-height: 1.5;
 }
 
-.kbd { font-family: monospace; font-size: 11px; border: 1px solid var(--line-strong); border-radius: var(--r-xs); padding: 1px 5px; }
 
 /* ---------- streaming answer + cross-collection parallels ---------- */
 

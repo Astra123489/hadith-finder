@@ -662,7 +662,6 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
                 )}
               </div>
             )}
-            <span className="ask-hint"><span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> to ask</span>
             <div className="spacer" />
 
             <div className="ctx-wrap" ref={ctxRef}>
