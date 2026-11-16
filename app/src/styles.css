@@ -1638,3 +1638,15 @@ html, body, #root {
 }
 
 .setting-ok { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--green); }
+
+/* ---------- which writer is answering ---------- */
+
+.model-row.writer-banner {
+  border-color: var(--gold-line);
+  background: var(--gold-soft);
+  align-items: flex-start;
+}
+
+.model-row.writer-banner .book-actions { align-self: center; }
+
+.local-writer.is-hidden { display: none; }

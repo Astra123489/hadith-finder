@@ -233,6 +233,8 @@ export default function SettingsView() {
     p ? Math.min(100, Math.round(((p.file_index * p.total + p.downloaded) / (p.total * p.file_total)) * 100)) : 0;
 
   const modelKeys: ModelKey[] = ["llm", "embedder", "reranker"];
+  /** Which writer is answering right now decides what this card is about. */
+  const usingEndpoint = Boolean(endpoint?.enabled);
 
   return (
     <div className="page">
@@ -243,6 +245,44 @@ export default function SettingsView() {
 
       <div className="card settings-section">
         <h2>Answer model</h2>
+        {usingEndpoint && endpoint && (
+          <>
+            <div className="model-row writer-banner">
+              <div className={`model-badge ${endpoint.ready ? "ok" : "bad"}`}>
+                {endpoint.ready ? "✓" : "!"}
+              </div>
+              <div className="model-text">
+                <div className="model-name">Your endpoint · {endpoint.model || "no model set"}</div>
+                <div className="model-meta">{endpoint.base_url || "no endpoint set"}</div>
+                <div className="model-path">
+                  Answers are written by this endpoint. Search, citations and highlighting still run
+                  on this device.
+                </div>
+              </div>
+              <div className="book-actions">
+                <button
+                  className="btn"
+                  onClick={() => saveEndpoint(false)}
+                  disabled={apiBusy}
+                  title="Go back to answering with the local GGUF"
+                >
+                  Use the local model
+                </button>
+              </div>
+            </div>
+            {!endpoint.ready && (
+              <p className="setting-error">
+                This endpoint is switched on but incomplete — questions will fail until the
+                endpoint, model and key are all set in the card below.
+              </p>
+            )}
+            <p className="setting-note">
+              The local model settings are hidden while the endpoint answers. Switch back above, or
+              from the model picker on the Ask screen, to bring them back.
+            </p>
+          </>
+        )}
+        <div className={`local-writer${usingEndpoint ? " is-hidden" : ""}`}>
         {models?.llm_active ? (
           <div className="model-row">
             <div className={`model-badge ${models.llm_active.exists ? "ok" : "bad"}`}>
@@ -431,6 +471,7 @@ export default function SettingsView() {
           loaded on this device; switching models takes effect on the next question and does not
           require re-indexing (answers only; embeddings are separate).
         </p>
+        </div>
       </div>
 
       <div className="card settings-section">
