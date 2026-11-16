@@ -28,6 +28,9 @@
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   --font-serif: Georgia, "Times New Roman", "Noto Naskh Arabic", "Amiri", "Traditional Arabic", serif;
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Keeps native controls — the model select's popup, number spinners,
+     checkboxes, scrollbars — in the app's dark theme instead of the OS light one. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -306,6 +309,18 @@ html, body, #root {
   background: #101f17;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);
+  color-scheme: dark;
+  cursor: pointer;
+}
+.model-select:hover { border-color: var(--gold-line); }
+.model-select option {
+  background: #16241c;
+  color: var(--text);
+}
+.model-select option:checked,
+.model-select option:hover {
+  background: #23382b;
+  color: var(--gold);
 }
 
 .scope-chip {
