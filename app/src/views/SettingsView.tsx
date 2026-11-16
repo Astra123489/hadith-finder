@@ -141,22 +141,18 @@ export default function SettingsView() {
       <div className="card settings-section">
         <h2>Answer model</h2>
         {models?.llm_active ? (
-          <div className="book-row" style={{ border: "1px solid var(--line)", borderRadius: 12 }}>
-            <div className="book-cover" style={{ height: 46, width: 46, borderRadius: 10 }}>
-              <span style={{ color: models.llm_active.exists ? "var(--green)" : "var(--red)", fontSize: 20 }}>
-                {models.llm_active.exists ? "✓" : "!"}
-              </span>
+          <div className="model-row">
+            <div className={`model-badge ${models.llm_active.exists ? "ok" : "bad"}`}>
+              {models.llm_active.exists ? "✓" : "!"}
             </div>
-            <div className="book-meta">
-              <div className="book-title" style={{ fontSize: 15 }}>{models.llm_active.name}</div>
-              <div className="book-sub" style={{ whiteSpace: "normal" }}>
+            <div className="model-text">
+              <div className="model-name">{models.llm_active.name}</div>
+              <div className="model-meta">
                 {models.llm_active.custom ? "your own GGUF · " : "downloaded default · "}
                 {formatMB(models.llm_active.size)}
                 {!models.llm_active.exists && " · file is missing"}
               </div>
-              <div className="book-sub" style={{ whiteSpace: "normal", wordBreak: "break-all" }}>
-                {models.llm_active.path}
-              </div>
+              <div className="model-path">{models.llm_active.path}</div>
             </div>
             <div className="book-actions">
               <button className="btn btn-primary" onClick={chooseGguf} disabled={llmBusy}>
@@ -173,7 +169,7 @@ export default function SettingsView() {
           <p>…</p>
         )}
         {models?.llm_active?.gpu && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: "var(--text-dim)" }}>
+          <div className="gpu-line">
             {models.llm_active.gpu.available ? (
               <>
                 GPU acceleration: <strong>{models.llm_active.gpu.device}</strong>
@@ -208,9 +204,9 @@ export default function SettingsView() {
           };
           const runtime = active.runtime;
           return (
-            <div style={{ marginTop: 16 }}>
-              <div className="book-sub" style={{ marginBottom: 6 }}>Where the model runs</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div className="setting-block">
+              <div className="setting-label">Where the model runs</div>
+              <div className="chip-row">
                 {(active.device_options ?? ["auto", "gpu", "cpu"]).map((device) => (
                   <button
                     key={device}
@@ -226,15 +222,13 @@ export default function SettingsView() {
                   <span className="ask-hint">this build has no GPU backend — CPU only</span>
                 )}
               </div>
-              <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+              <p className="setting-note">
                 {deviceHints[active.device] ?? ""} Changing this reloads the model on your next question
                 {active.auto_load ? " (or at launch)" : ""}.
               </p>
 
-              <div className="book-sub" style={{ marginTop: 14, marginBottom: 6 }}>
-                KV cache precision
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="setting-label">KV cache precision</div>
+              <div className="chip-row">
                 {(active.kv_options ?? ["f16", "q8_0", "q4_0"]).map((kv) => (
                   <button
                     key={kv}
@@ -251,7 +245,7 @@ export default function SettingsView() {
                   </button>
                 ))}
               </div>
-              <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+              <p className="setting-note">
                 Quantizing the K/V cache shrinks the memory the context needs — a Q8_0 or Q4_0 cache fits a
                 longer window in the same VRAM. It needs flash attention; if this llama.cpp build does not
                 support it, the app quietly falls back to F16.
@@ -293,9 +287,9 @@ export default function SettingsView() {
           );
         })()}
         {models?.llm_active && (
-          <div style={{ marginTop: 14 }}>
-            <div className="book-sub" style={{ marginBottom: 6 }}>Context window</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="setting-block">
+            <div className="setting-label">Context window</div>
+            <div className="chip-row">
               {[2048, 4096, 6144, 8192, 16384, 32768].map((n) => (
                 <button
                   key={n}
@@ -307,14 +301,13 @@ export default function SettingsView() {
                 </button>
               ))}
               <input
-                className="page-input"
+                className="page-input ctx-input"
                 type="number"
                 min={models.llm_active.ctx_min}
                 max={models.llm_active.ctx_max}
                 step={256}
                 value={ctxValue}
                 onChange={(e) => setCtxValue(e.target.value)}
-                style={{ width: 108 }}
                 aria-label="Context length in tokens"
               />
               <button className="btn" onClick={() => saveCtx()} disabled={ctxBusy}>
@@ -322,7 +315,7 @@ export default function SettingsView() {
               </button>
               <span className="ask-hint">tokens · default {models.llm_active.ctx_default}</span>
             </div>
-            <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+            <p className="setting-note">
               The context window is the room for the retrieved excerpts plus the answer. Larger
               windows fit longer passages but use more RAM and make the first token slower; the
               model supports up to {models.llm_active.ctx_max.toLocaleString()} tokens. Takes effect
@@ -330,7 +323,7 @@ export default function SettingsView() {
             </p>
           </div>
         )}
-        <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-faint)" }}>
+        <p className="setting-note">
           Any GGUF file works — including one you already have in LM Studio or Ollama. The model is
           loaded on this device; switching models takes effect on the next question and does not
           require re-indexing (answers only; embeddings are separate).
@@ -344,22 +337,20 @@ export default function SettingsView() {
           into your data folder (resumable if interrupted) — they are never shared with anyone, and
           they are free: Gemma 4 (Google, Apache-2.0) and BGE models (BAAI, MIT).
         </p>
-        <div className="library-list" style={{ marginTop: 14 }}>
+        <div className="library-list models-list">
           {models && modelKeys.map((key) => {
             const m = models[key];
             const p = progress[key];
             const pct = progressPct(p);
             const active = busy === key;
             return (
-              <div key={key} className="book-row" style={{ border: "1px solid var(--line)", borderRadius: 12 }}>
-                <div className="book-cover" style={{ height: 46, width: 46, borderRadius: 10 }}>
-                  <span style={{ color: m.ready ? "var(--green)" : "var(--gold)", fontSize: 20 }}>{m.ready ? "✓" : "↓"}</span>
-                </div>
-                <div className="book-meta">
-                  <div className="book-title" style={{ fontSize: 15 }}>{m.name}</div>
-                  <div className="book-sub" style={{ whiteSpace: "normal" }}>{m.purpose} · {m.license} · {formatMB(m.total_bytes)}</div>
+              <div key={key} className="model-row">
+                <div className={`model-badge ${m.ready ? "ok" : "idle"}`}>{m.ready ? "✓" : "↓"}</div>
+                <div className="model-text">
+                  <div className="model-name">{m.name}</div>
+                  <div className="model-meta">{m.purpose} · {m.license} · {formatMB(m.total_bytes)}</div>
                   {active && p && (
-                    <div className="progress-wrap" style={{ marginTop: 8, minWidth: 260 }}>
+                    <div className="progress-wrap model-progress">
                       <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                       <div className="progress-label">
                         {p.file} — {formatMB(p.downloaded)} / {formatMB(p.total)} ({pct}%)
@@ -380,7 +371,7 @@ export default function SettingsView() {
             );
           })}
         </div>
-        <p style={{ marginTop: 12, fontSize: 12, color: "var(--text-faint)" }}>
+        <p className="setting-note">
           Needs roughly 6.2 GB of free disk. When all three show “installed”, asking and highlighting
           are fully unlocked — offline, forever.
         </p>
@@ -418,7 +409,7 @@ export default function SettingsView() {
           RapidOCR on this device. Status:{" "}
           <strong>{info?.ocr ? (info.ocr.available ? `RapidOCR ready (mode: ${info.ocr.mode})` : "not installed — text-layer only") : "…"}</strong>
         </p>
-        <p style={{ color: "var(--text-faint)", fontSize: 12 }}>
+        <p className="setting-note">
           The shipped OCR model reads Latin script; Arabic pages that contain no text layer at all
           still need an Arabic OCR pass before importing.
         </p>
@@ -443,7 +434,7 @@ export default function SettingsView() {
           is by TrevorJS; embeddings and reranking by BAAI) under their respective free licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
           publishers — use copies you're entitled to keep.
         </p>
-        <p style={{ color: "var(--text-faint)" }}>Version 0.2.0 · Not affiliated with any religious authority.</p>
+        <p className="setting-note">Version 0.2.0 · Not affiliated with any religious authority.</p>
       </div>
     </div>
   );
