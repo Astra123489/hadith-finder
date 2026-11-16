@@ -7,6 +7,7 @@ import type {
   ChatSummary,
   DailyHadith,
   ImportResult,
+  Narration,
   NewBookmark,
   ThreadState,
   ThreadTurn,
@@ -460,6 +461,20 @@ const demoApi = {
     }
     return Promise.resolve({ chats: demoChatList() });
   },
+  readNarration: (collection: string, number: number) => {
+    const found = DEMO_RESULT.citations
+      .flatMap((c) => c.also_in)
+      .find((p) => p.collection === collection && p.number === number);
+    if (!found) return Promise.reject(new Error(`no such narration: ${collection} ${number}`));
+    return Promise.resolve({
+      collection: found.collection,
+      collection_name: found.collection_name,
+      short: found.label.split(" ")[0],
+      number: found.number,
+      book: found.book,
+      text: found.snippet,
+    });
+  },
   rewindThread: (turnId: number) => {
     const chat = activeDemoChat();
     const index = chat.turns.findIndex((t) => t.id === turnId);
@@ -627,6 +642,11 @@ const realApi = {
     invoke<{ dropped: number; question: string; thread: ThreadState; chats: ChatSummary[] }>(
       "rewind_thread",
       { turnId },
+    ),
+
+  readNarration: (collection: string, number: number) =>
+    invoke<{ narration: Narration }>("read_narration", { collection, number }).then(
+      (r) => r.narration as Narration,
     ),
 
   suggestFollowups: (count?: number) =>

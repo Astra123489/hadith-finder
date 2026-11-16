@@ -94,6 +94,17 @@ try:
 except SystemExit as exc:
     check("rejects bad date", "ISO date" in str(exc))
 
+narration = call(
+    "read_narration", {"collection": day["collection"], "number": day["number"]}
+)["narration"]
+check("read_narration returns the full matn", len(narration["text"]) >= len(day["text"]), len(narration["text"]))
+check("read_narration names the collection", bool(narration["collection_name"]), narration["collection_name"])
+try:
+    call("read_narration", {"collection": day["collection"], "number": 999999})
+    check("read_narration rejects an unknown number", False)
+except SystemExit as exc:
+    check("read_narration rejects an unknown number", "no such narration" in str(exc))
+
 added = call(
     "add_bookmark",
     {

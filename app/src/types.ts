@@ -24,6 +24,15 @@ export interface Parallel {
   same_collection: boolean;
 }
 
+export interface Narration {
+  collection: string;
+  collection_name: string;
+  short: string;
+  number: number;
+  book: string;
+  text: string;
+}
+
 export interface Citation {
   chunk_id: number;
   book_id: number;

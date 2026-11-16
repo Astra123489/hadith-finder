@@ -136,6 +136,7 @@ def dispatch(method: str, params: dict):
         "reset_thread": _reset_thread,
         "compact_thread": _compact_thread,
         "rewind_thread": _rewind_thread,
+        "read_narration": _read_narration,
         "suggest_followups": _suggest_followups,
         "models_status": _models_status,
         "set_llm": _set_llm,
@@ -499,6 +500,20 @@ def _compact_thread(_params):
         "dropped": outcome["dropped"],
         "thread": thread_mod.snapshot(conv, info),
     }
+
+
+def _read_narration(params):
+    """The full text behind a "same narration" cross-reference."""
+    from . import crossref
+
+    collection = str(params.get("collection") or "").strip()
+    number = params.get("number")
+    if not collection or number is None:
+        raise ValueError("params.collection and params.number are required")
+    found = crossref.narration(_conn(), collection, int(number))
+    if found is None:
+        raise ValueError(f"no such narration: {collection} {number}")
+    return {"narration": found}
 
 
 def _rewind_thread(params):

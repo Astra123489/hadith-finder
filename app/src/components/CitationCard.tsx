@@ -28,24 +28,43 @@ interface Props {
   citation: Citation;
   onHighlight: (c: Citation) => void;
   onBookmark?: (c: Citation, description: string) => Promise<void>;
+  /** Opens a cross-reference in full, when the reader can show it. */
+  onOpenNarration?: (p: Parallel) => void;
   /** Keeps anchor ids unique when several answers share a page. */
   idPrefix?: string;
 }
 
-function ParallelRow({ p }: { p: Parallel }) {
-  return (
-    <div className="parallel-row">
+function ParallelRow({ p, onOpen }: { p: Parallel; onOpen?: (p: Parallel) => void }) {
+  const body = (
+    <>
       <div className="parallel-head">
         <span className="parallel-label">{p.label}</span>
         {p.book ? <span className="parallel-book">{p.book}</span> : null}
         <span className="parallel-score">{Math.round(p.score * 100)}% match</span>
       </div>
       <div className="parallel-text">{p.snippet}</div>
-    </div>
+    </>
+  );
+  if (!onOpen) return <div className="parallel-row">{body}</div>;
+  return (
+    <button
+      type="button"
+      className="parallel-row parallel-row-link"
+      onClick={() => onOpen(p)}
+      title={`Read ${p.label} in full`}
+    >
+      {body}
+    </button>
   );
 }
 
-export default function CitationCard({ citation: c, onHighlight, onBookmark, idPrefix = "citation" }: Props) {
+export default function CitationCard({
+  citation: c,
+  onHighlight,
+  onBookmark,
+  onOpenNarration,
+  idPrefix = "citation",
+}: Props) {
   const n = c.source_index;
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -89,7 +108,7 @@ export default function CitationCard({ citation: c, onHighlight, onBookmark, idP
         <div className="parallels">
           <div className="parallels-title">Same narration in other collections</div>
           {c.also_in.map((p) => (
-            <ParallelRow key={`${p.collection}-${p.number}`} p={p} />
+            <ParallelRow key={`${p.collection}-${p.number}`} p={p} onOpen={onOpenNarration} />
           ))}
         </div>
       )}

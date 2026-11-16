@@ -2,7 +2,16 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { createPortal } from "react-dom";
 import { api } from "../api";
 import type { LlmOption } from "../api";
-import type { Book, ChatSummary, Citation, ThreadState, ThreadTurn, ThreadUsage } from "../types";
+import type {
+  Book,
+  ChatSummary,
+  Citation,
+  Narration,
+  Parallel,
+  ThreadState,
+  ThreadTurn,
+  ThreadUsage,
+} from "../types";
 import CitationCard, { citationLabel } from "../components/CitationCard";
 
 const EXAMPLES = [
@@ -79,6 +88,22 @@ function IconCheck() {
   );
 }
 
+async function writeClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Older webviews have no async clipboard; this still works on a user gesture.
+  const scratch = document.createElement("textarea");
+  scratch.value = text;
+  scratch.style.position = "fixed";
+  scratch.style.opacity = "0";
+  document.body.appendChild(scratch);
+  scratch.select();
+  document.execCommand("copy");
+  scratch.remove();
+}
+
 function formatTokens(n: number): string {
   if (n >= 10000) return `${Math.round(n / 1000)}k`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -121,6 +146,8 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [scopeOpen, setScopeOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
+  const [narration, setNarration] = useState<Narration | null>(null);
+  const [narrationCopied, setNarrationCopied] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -441,27 +468,34 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     await rewindTo(turn.id);
   };
 
-  /** Copy a question, with a clipboard fallback for non-secure contexts. */
   const copyQuestion = async (turn: ThreadTurn) => {
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(turn.question);
-      } else {
-        const scratch = document.createElement("textarea");
-        scratch.value = turn.question;
-        scratch.style.position = "fixed";
-        scratch.style.opacity = "0";
-        document.body.appendChild(scratch);
-        scratch.select();
-        document.execCommand("copy");
-        scratch.remove();
-      }
+      await writeClipboard(turn.question);
       setCopiedTurn(turn.id);
       window.setTimeout(() => setCopiedTurn((cur) => (cur === turn.id ? null : cur)), 1400);
     } catch (e) {
       setError(String(e));
     }
   };
+
+  /** The full text behind a "same narration" line in a source card. */
+  const openNarration = async (p: Parallel) => {
+    try {
+      setNarrationCopied(false);
+      setNarration(await api.readNarration(p.collection, p.number));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  useEffect(() => {
+    if (!narration) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNarration(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [narration]);
 
   const startRename = (id: string) => {
     const chat = chats.find((c) => c.id === id);
@@ -639,6 +673,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
                         citation={c}
                         onHighlight={onOpenCitation}
                         onBookmark={onBookmark}
+                        onOpenNarration={openNarration}
                       />
                     ))}
                   </div>
@@ -942,6 +977,54 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           </div>
         </form>
       </div>
+
+      {narration && (
+        <div
+          className="sheet-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${narration.collection_name} ${narration.number}`}
+          onClick={() => setNarration(null)}
+        >
+          <div className="narration-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="narration-head">
+              <div>
+                <div className="narration-title">
+                  {narration.collection_name} · Hadith {narration.number}
+                </div>
+                {narration.book && <div className="narration-book">{narration.book}</div>}
+              </div>
+              <button
+                className="icon-btn"
+                onClick={() => setNarration(null)}
+                title="Close (Esc)"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="narration-text" dir="auto">
+              {narration.text}
+            </p>
+            <div className="narration-actions">
+              <button
+                className="btn"
+                onClick={async () => {
+                  try {
+                    await writeClipboard(narration.text);
+                    setNarrationCopied(true);
+                    window.setTimeout(() => setNarrationCopied(false), 1400);
+                  } catch (e) {
+                    setError(String(e));
+                  }
+                }}
+              >
+                {narrationCopied ? "Copied" : "Copy narration"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {sidebarSlot &&
         createPortal(

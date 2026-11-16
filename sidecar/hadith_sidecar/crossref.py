@@ -134,6 +134,27 @@ import math
 _DF_CACHE: dict[str, int] = {}
 
 
+def narration(conn, collection: str, number: int) -> dict | None:
+    """One canonical narration in full, so a cross-reference can be read through."""
+    ensure_index(conn)
+    row = conn.execute(
+        "SELECT collection, number, book, text FROM xref"
+        " WHERE collection = ? AND number = ? LIMIT 1",
+        (str(collection), int(number)),
+    ).fetchone()
+    if row is None:
+        return None
+    meta = {c["slug"]: c for c in collections(conn)}.get(row["collection"], {})
+    return {
+        "collection": row["collection"],
+        "collection_name": meta.get("name", row["collection"]),
+        "short": meta.get("short", row["collection"]),
+        "number": int(row["number"]),
+        "book": row["book"] or "",
+        "text": row["text"],
+    }
+
+
 def _doc_count(conn) -> int:
     row = conn.execute("SELECT COUNT(*) c FROM xref").fetchone()
     return int(row["c"]) if row else 0

@@ -1538,3 +1538,69 @@ html, body, #root {
 @media (hover: none) {
   .turn-actions { opacity: 1; }
 }
+
+/* ---------- a cross-reference read in full ---------- */
+
+.parallel-row-link {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.parallel-row-link:hover .parallel-label { color: var(--gold); }
+.parallel-row-link:hover .parallel-text { color: var(--text); }
+.parallel-row-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 9, 7, 0.72);
+  animation: pageIn 0.16s ease;
+}
+
+.narration-sheet {
+  width: min(620px, 100%);
+  max-height: min(78vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+.narration-head { display: flex; align-items: flex-start; gap: 12px; }
+.narration-head .icon-btn { margin-left: auto; flex: 0 0 auto; }
+.narration-title {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  color: var(--text);
+}
+.narration-book { margin-top: 3px; font-size: 12px; color: var(--text-faint); }
+
+.narration-text {
+  margin: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--text);
+  unicode-bidi: plaintext;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.narration-actions { display: flex; gap: 8px; }
