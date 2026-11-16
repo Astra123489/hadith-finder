@@ -23,6 +23,12 @@ function prettyDay(day: string): string {
   return date.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
+/** "16 November 2026" — the date under "Today", readable rather than ISO. */
+function shortDay(day: string): string {
+  const date = new Date(`${day}T12:00:00`);
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
+
 export default function DailyView({ bookmarks, onBookmarks }: Props) {
   const today = localDay();
   const [day, setDay] = useState(today);
@@ -100,7 +106,7 @@ export default function DailyView({ bookmarks, onBookmarks }: Props) {
         </button>
         <div className="daily-date">
           {day === today ? "Today" : prettyDay(day)}
-          <span className="daily-iso">{day}</span>
+          {day === today && <span className="daily-sub">{shortDay(day)}</span>}
         </div>
         <button
           className="icon-btn"
