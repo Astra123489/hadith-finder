@@ -142,6 +142,30 @@ def add_turn(conv: dict, question: str, result: dict) -> dict:
     return turn
 
 
+def rewind(conv: dict, turn_id) -> dict:
+    """Drop one turn and everything asked after it, so it can be retried or edited.
+
+    The reader is not deleting the conversation, only returning to the moment
+    before a question: the transcript, the title and the id stay put and the
+    tail is cut away.
+    """
+    try:
+        wanted = int(turn_id)
+    except (TypeError, ValueError):
+        raise ValueError("params.turn_id must be a whole number") from None
+    index = next((i for i, t in enumerate(conv["turns"]) if t["id"] == wanted), None)
+    if index is None:
+        raise ValueError(f"no such turn: {turn_id}")
+    dropped = conv["turns"][index:]
+    conv["turns"] = conv["turns"][:index]
+    # A summary describes turns that are no longer in the transcript; with
+    # nothing left it would be a memory of a conversation just rolled back.
+    if not conv["turns"]:
+        conv["summary"] = ""
+    conv["updated_at"] = _now()
+    return {"dropped": len(dropped), "question": dropped[0]["question"]}
+
+
 def usage(llm, conv: dict, ctx: int, *, excerpt_tokens: int = 0) -> dict:
     """Size of the prompt the next question would send, against the window."""
     base = count_tokens(llm, SYSTEM_PROMPT)

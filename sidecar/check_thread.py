@@ -272,6 +272,28 @@ try:
     except SystemExit as exc:
         check("rename rejects an empty name", "needs a name" in str(exc))
 
+    second_id = reopened["thread"]["turns"][1]["id"]
+    rewound = call("rewind_thread", {"turn_id": second_id})
+    check(
+        "rewind drops the turn it names",
+        len(rewound["thread"]["turns"]) == 1,
+        len(rewound["thread"]["turns"]),
+    )
+    check("rewind returns the question it removed", bool(rewound["question"]), rewound["question"][:40])
+    try:
+        call("rewind_thread", {"turn_id": 9999})
+        check("rewind rejects an unknown turn", False)
+    except SystemExit as exc:
+        check("rewind rejects an unknown turn", "no such turn" in str(exc))
+
+    emptied = call("rewind_thread", {"turn_id": rewound["thread"]["turns"][0]["id"]})
+    check("rewind to the start empties the transcript", len(emptied["thread"]["turns"]) == 0)
+    check("rewind to the start clears the summary", emptied["thread"]["summary"] == "")
+
+    # The conversation carries on from where it was rolled back to.
+    resumed = call("ask", {"query": "Start again from the beginning"})
+    check("asking works after a rewind", len(resumed["thread"]["turns"]) == 1)
+
     other_id = next(c["id"] for c in reopened["chats"] if c["id"] != first_id)
     removed = call("delete_chat", {"id": other_id})
     check("delete_chat removes the row", removed["deleted"] is True and len(removed["chats"]) == 1, len(removed["chats"]))

@@ -135,6 +135,7 @@ def dispatch(method: str, params: dict):
         "delete_chat": _delete_chat,
         "reset_thread": _reset_thread,
         "compact_thread": _compact_thread,
+        "rewind_thread": _rewind_thread,
         "suggest_followups": _suggest_followups,
         "models_status": _models_status,
         "set_llm": _set_llm,
@@ -497,6 +498,23 @@ def _compact_thread(_params):
         "compacted": outcome["compacted"],
         "dropped": outcome["dropped"],
         "thread": thread_mod.snapshot(conv, info),
+    }
+
+
+def _rewind_thread(params):
+    """Drop a question and everything after it, so it can be retried or edited."""
+    from . import thread as thread_mod
+
+    conv = _thread()
+    outcome = thread_mod.rewind(conv, params.get("turn_id"))
+    _persist_chat(conv)
+    llm = _state["llm"]  # never load weights just to measure the window
+    info = thread_mod.usage(llm, conv, _context_size(llm))
+    return {
+        "dropped": outcome["dropped"],
+        "question": outcome["question"],
+        "thread": thread_mod.snapshot(conv, info),
+        "chats": _chat_list(),
     }
 
 

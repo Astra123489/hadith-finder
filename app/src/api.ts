@@ -460,6 +460,21 @@ const demoApi = {
     }
     return Promise.resolve({ chats: demoChatList() });
   },
+  rewindThread: (turnId: number) => {
+    const chat = activeDemoChat();
+    const index = chat.turns.findIndex((t) => t.id === turnId);
+    if (index < 0) return Promise.reject(new Error(`no such turn: ${turnId}`));
+    const dropped = chat.turns.slice(index);
+    chat.turns = chat.turns.slice(0, index);
+    if (!chat.turns.length) chat.summary = "";
+    chat.updatedAt = new Date().toISOString();
+    return Promise.resolve({
+      dropped: dropped.length,
+      question: dropped[0].question,
+      thread: demoThreadState(chat),
+      chats: demoChatList(),
+    });
+  },
   deleteChat: (id: string) => {
     const before = demoChats.length;
     demoChats = demoChats.filter((c) => c.id !== id);
@@ -607,6 +622,12 @@ const realApi = {
 
   compactThread: () =>
     invoke<{ compacted: boolean; dropped: number; thread: ThreadState }>("compact_thread"),
+
+  rewindThread: (turnId: number) =>
+    invoke<{ dropped: number; question: string; thread: ThreadState; chats: ChatSummary[] }>(
+      "rewind_thread",
+      { turnId },
+    ),
 
   suggestFollowups: (count?: number) =>
     invoke<{ suggestions: string[] }>("suggest_followups", { count: count ?? 3 }).then(

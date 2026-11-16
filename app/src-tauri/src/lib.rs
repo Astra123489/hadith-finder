@@ -174,6 +174,15 @@ async fn compact_thread(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn rewind_thread(app: AppHandle, turn_id: i64) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "rewind_thread", json!({ "turn_id": turn_id }), 30)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn suggest_followups(app: AppHandle, count: Option<i64>) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         call_blocking(
@@ -355,6 +364,7 @@ pub fn run() {
             delete_chat,
             reset_thread,
             compact_thread,
+            rewind_thread,
             suggest_followups,
             models_status,
             list_llms,

@@ -68,6 +68,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [sidebarSlot, setSidebarSlot] = useState<HTMLElement | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [focusTick, setFocusTick] = useState(0);
   const [modelOpen, setModelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -343,6 +344,51 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     }
   };
 
+  /** Cut the conversation back to just before this turn. */
+  const rewindTo = async (turnId: number): Promise<string | null> => {
+    if (busy) return null;
+    setError(null);
+    setNotice(null);
+    setSuggestions([]);
+    try {
+      const res = await api.rewindThread(turnId);
+      applyThread(res.thread);
+      if (res.chats) setChats(res.chats);
+      return res.question;
+    } catch (e) {
+      setError(String(e));
+      return null;
+    }
+  };
+
+  /** Take the question back into the box and forget the answer it got. */
+  const editTurn = async (turn: ThreadTurn) => {
+    const question = await rewindTo(turn.id);
+    if (question === null) return;
+    setQuery(turn.question);
+    setFocusTick((n) => n + 1);
+  };
+
+  // Put the caret at the end of a question that was taken back for editing.
+  useEffect(() => {
+    if (!focusTick) return;
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [focusTick]);
+
+  /** Ask the same question again from the same point in the conversation. */
+  const retryTurn = async (turn: ThreadTurn) => {
+    const question = await rewindTo(turn.id);
+    if (question === null) return;
+    await submit(undefined, turn.question);
+  };
+
+  const dropTurn = async (turn: ThreadTurn) => {
+    await rewindTo(turn.id);
+  };
+
   const startRename = (id: string) => {
     const chat = chats.find((c) => c.id === id);
     renameCancelled.current = false;
@@ -459,7 +505,32 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           const latest = index === turns.length - 1;
           return (
             <div className="turn" key={turn.id}>
-              <div className="turn-q" dir="auto">{turn.question}</div>
+              <div className="turn-q-wrap">
+                <div className="turn-q" dir="auto">{turn.question}</div>
+                <div className="turn-actions">
+                  <button
+                    onClick={() => editTurn(turn)}
+                    disabled={busy}
+                    title="Put this question back in the box and drop the answer"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => retryTurn(turn)}
+                    disabled={busy}
+                    title="Drop this answer and ask the question again"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => dropTurn(turn)}
+                    disabled={busy}
+                    title="Remove this question and everything after it"
+                  >
+                    Roll back
+                  </button>
+                </div>
+              </div>
               <div className={`card answer ${notFound ? "notfound" : ""}`} dir="auto">
                 <div className="answer-label">Answer</div>
                 <p>{renderedAnswer(turn.answer, turn.citations, prefix)}</p>

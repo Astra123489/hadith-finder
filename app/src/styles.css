@@ -905,17 +905,24 @@ html, body, #root {
 
 .thread { flex: 1 1 auto; }
 .turn { margin-bottom: 26px; }
-.turn-q {
+.turn-q-wrap {
   margin-left: auto;
   width: fit-content;
   max-width: 78%;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.turn-q {
+  max-width: 100%;
   background: rgba(217, 164, 65, 0.1);
   border: 1px solid var(--gold-line);
-  border-radius: 14px 14px 4px 14px;
+  border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
   padding: 10px 14px;
   font-size: 14.5px;
   line-height: 1.5;
-  margin-bottom: 12px;
   unicode-bidi: plaintext;
   white-space: pre-wrap;
 }
@@ -1494,3 +1501,35 @@ html, body, #root {
 .model-opt:disabled { opacity: 0.45; cursor: default; }
 .model-opt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-opt-note { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
+
+/* ---------- what you can do with a question ---------- */
+
+.turn-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.turn:hover .turn-actions,
+.turn:focus-within .turn-actions { opacity: 1; }
+.turn-actions button {
+  background: none;
+  border: none;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.turn-actions button:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(231, 220, 195, 0.07);
+}
+.turn-actions button:disabled { opacity: 0.4; cursor: default; }
+.turn-actions button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+/* no hover on touch: keep the actions reachable */
+@media (hover: none) {
+  .turn-actions { opacity: 1; }
+}
