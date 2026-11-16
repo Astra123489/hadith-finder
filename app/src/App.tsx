@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import "./styles.css";
 import { api } from "./api";
-import type { Book, Citation } from "./types";
+import type { Book, Bookmark, Citation } from "./types";
 import AskView from "./views/AskView";
+import DailyView from "./views/DailyView";
+import BookmarksView from "./views/BookmarksView";
 import LibraryView from "./views/LibraryView";
 import SettingsView from "./views/SettingsView";
 import PdfViewer from "./views/PdfViewer";
 
-type View = "ask" | "library" | "settings";
+type View = "ask" | "daily" | "bookmarks" | "library" | "settings";
 
 interface ViewerState {
   filePath: string;
@@ -31,9 +33,31 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
     ),
   },
   {
+    key: "daily",
+    label: "Daily",
+    kbd: "2",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M12 12.5v3M10.5 14h3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: "bookmarks",
+    label: "Bookmarks",
+    kbd: "3",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M6 4.5h12a1 1 0 0 1 1 1V21l-7-4.2L5 21V5.5a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     key: "library",
     label: "Library",
-    kbd: "2",
+    kbd: "4",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M4 19V5a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
@@ -44,7 +68,7 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
   {
     key: "settings",
     label: "Settings",
-    kbd: "3",
+    kbd: "5",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="1.7" />
@@ -57,6 +81,7 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
 export default function App() {
   const [view, setView] = useState<View>("ask");
   const [books, setBooks] = useState<Book[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [scope, setScope] = useState<number[] | null>(null);
   const [viewer, setViewer] = useState<ViewerState | null>(null);
 
@@ -69,16 +94,25 @@ export default function App() {
     }
   }, []);
 
+  const refreshBookmarks = useCallback(async () => {
+    try {
+      setBookmarks(await api.listBookmarks());
+    } catch (e) {
+      console.error("list_bookmarks failed", e);
+    }
+  }, []);
+
   useEffect(() => {
     refreshBooks();
-  }, [refreshBooks]);
+    refreshBookmarks();
+  }, [refreshBooks, refreshBookmarks]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
-      if (e.key === "1") setView("ask");
-      if (e.key === "2") setView("library");
-      if (e.key === "3") setView("settings");
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const hit = NAV.find((n) => n.kbd === e.key);
+      if (hit) setView(hit.key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -98,6 +132,43 @@ export default function App() {
     },
     [books],
   );
+
+  /** A saved narration opens the same highlighted PDF passage it came from. */
+  const openBookmark = useCallback(
+    (bookmark: Bookmark) => {
+      if (bookmark.kind !== "library" || bookmark.book_id == null) return;
+      const book = books.find((b) => b.id === bookmark.book_id);
+      if (!book) return;
+      const page = bookmark.page_start ?? 0;
+      setViewer({
+        filePath: book.file_path,
+        title: `${bookmark.title} — p. ${page + 1}`,
+        page,
+        spans: bookmark.spans,
+        tag: "★",
+      });
+    },
+    [books],
+  );
+
+  const bookmarkCitation = useCallback(async (citation: Citation, description: string) => {
+    await api.addBookmark({
+      kind: "library",
+      title: citation.book_title,
+      chapter: citation.chapter,
+      reference: citation.hadith_ref ? `Hadith ${citation.hadith_ref}` : `p. ${citation.page_start + 1}`,
+      collection: null,
+      number: null,
+      page_start: citation.page_start,
+      page_end: citation.page_end,
+      excerpt: citation.excerpt,
+      gradings: citation.gradings,
+      spans: citation.spans,
+      book_id: citation.book_id,
+      chunk_id: citation.chunk_id,
+      description: description.trim() || null,
+    }).then((res) => setBookmarks(res.bookmarks));
+  }, []);
 
   return (
     <div className="shell">
@@ -124,14 +195,17 @@ export default function App() {
           >
             {item.icon}
             {item.label}
+            {item.key === "bookmarks" && bookmarks.length > 0 && (
+              <span className="nav-count">{bookmarks.length}</span>
+            )}
             <span className="nav-kbd">{item.kbd}</span>
           </button>
         ))}
 
-        <div className="sidebar-foot">
-          <div><span className="dot-live" /><strong>Fully local</strong> — nothing leaves this device.</div>
-          <div style={{ marginTop: 8 }}>Always verify answers against the highlighted source passage.</div>
-        </div>
+        {/* The Ask view portals its conversation list in here; the rail has
+            room the reading column needs more. */}
+        {view === "ask" && <div className="chat-slot" id="chat-slot" />}
+
       </aside>
 
       <main className="main">
@@ -141,6 +215,16 @@ export default function App() {
             initialScope={scope}
             onScopeChange={setScope}
             onOpenCitation={openCitation}
+            onBookmark={bookmarkCitation}
+          />
+        )}
+        {view === "daily" && <DailyView bookmarks={bookmarks} onBookmarks={setBookmarks} />}
+        {view === "bookmarks" && (
+          <BookmarksView
+            bookmarks={bookmarks}
+            onChanged={setBookmarks}
+            onOpen={openBookmark}
+            onOpenAsk={() => setView("ask")}
           />
         )}
         {view === "library" && <LibraryView books={books} onChanged={refreshBooks} />}

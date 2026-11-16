@@ -237,3 +237,54 @@ def find_parallels(conn, text: str, *, limit: int = 3, min_weight: float = 8.0,
 def label_for(conn, match: dict) -> str:
     names = {c["slug"]: c["name"] for c in collections(conn)}
     return f"{names.get(match['collection'], match['collection'])} {match['number']}"
+
+
+def daily(conn, day: str, *, min_chars: int = 150) -> dict | None:
+    """The narration of the day: the same one all day, different tomorrow.
+
+    The pick is a hash of the ISO date over narrations long enough to read on
+    their own, so it is stable across launches without storing anything, and
+    different on every calendar day.
+    """
+    import hashlib
+
+    ensure_index(conn)
+    rows = conn.execute(
+        "SELECT id, collection, number, book, text FROM xref"
+        " WHERE length(text) >= ? AND number > 0 ORDER BY id",
+        (min_chars,),
+    ).fetchall()
+    if not rows:
+        return None
+    digest = hashlib.sha256(f"hadith-of-the-day:{day}".encode("utf-8")).hexdigest()
+    index = int(digest[:12], 16) % len(rows)
+    row = rows[index]
+    meta = {c["slug"]: c for c in collections(conn)}
+    info = meta.get(row["collection"], {})
+    parallel_rows: list[dict] = []
+    try:
+        for match in find_parallels(conn, row["text"], limit=2,
+                                    exclude_collection=row["collection"]):
+            other = meta.get(match["collection"], {})
+            parallel_rows.append({
+                "collection": match["collection"],
+                "collection_name": other.get("name", match["collection"]),
+                "short": other.get("short", match["collection"]),
+                "number": int(match["number"]),
+                "book": match["book"],
+                "snippet": " ".join(match["text"].split())[:240],
+                "label": f"{other.get('short', match['collection'])} {match['number']}",
+                "score": match["score"],
+            })
+    except Exception:
+        parallel_rows = []
+    return {
+        "date": day,
+        "collection": row["collection"],
+        "collection_name": info.get("name", row["collection"]),
+        "short": info.get("short", row["collection"]),
+        "number": int(row["number"]),
+        "book": row["book"] or "",
+        "text": row["text"],
+        "also_in": parallel_rows,
+    }

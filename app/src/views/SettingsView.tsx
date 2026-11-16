@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, formatMB, type DownloadProgress, type ModelsStatus } from "../api";
+import type { ActiveModel, KvCache, LlmDevice } from "../api";
 
 type ModelKey = "llm" | "embedder" | "reranker";
 
@@ -12,6 +13,14 @@ export default function SettingsView() {
   const [llmBusy, setLlmBusy] = useState(false);
   const [ctxValue, setCtxValue] = useState("6144");
   const [ctxBusy, setCtxBusy] = useState(false);
+  const [optBusy, setOptBusy] = useState(false);
+  const [llmStatus, setLlmStatus] = useState<{
+    stage: "loading" | "ready" | "error";
+    message?: string;
+    gpu_layers?: number;
+    kv?: string;
+    kv_applied?: boolean;
+  } | null>(null);
   const [progress, setProgress] = useState<Record<ModelKey, DownloadProgress | null>>({
     llm: null, embedder: null, reranker: null,
   });
@@ -23,6 +32,11 @@ export default function SettingsView() {
     refresh();
     let unlisten: (() => void) | undefined;
     api.onProgress((p) => {
+      if (p.op === "llm") {
+        setLlmStatus(p);
+        if (p.stage !== "loading") refresh();
+        return;
+      }
       if (p.op !== "download") return;
       setProgress((cur) => ({ ...cur, [p.model]: p }));
     }).then((fn) => (unlisten = fn));
@@ -50,6 +64,19 @@ export default function SettingsView() {
       setError(String(e));
     } finally {
       setCtxBusy(false);
+    }
+  };
+
+  const saveLlmOptions = async (opts: { device?: LlmDevice; kv?: KvCache; auto_load?: boolean }) => {
+    setOptBusy(true);
+    setError(null);
+    try {
+      await api.setLlmOptions(opts);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setOptBusy(false);
     }
   };
 
@@ -170,6 +197,101 @@ export default function SettingsView() {
             )}
           </div>
         )}
+        {models?.llm_active && (() => {
+          const active = models.llm_active as ActiveModel;
+          const gpuReady = Boolean(active.gpu?.available);
+          const deviceLabels: Record<string, string> = { auto: "Auto", gpu: "GPU", cpu: "CPU" };
+          const deviceHints: Record<string, string> = {
+            auto: "Use the graphics card when this build supports it, otherwise the CPU.",
+            gpu: "Offload every layer to the GPU — fastest, needs the model to fit in VRAM.",
+            cpu: "Keep the weights in system RAM — slower, but works on any machine.",
+          };
+          const runtime = active.runtime;
+          return (
+            <div style={{ marginTop: 16 }}>
+              <div className="book-sub" style={{ marginBottom: 6 }}>Where the model runs</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {(active.device_options ?? ["auto", "gpu", "cpu"]).map((device) => (
+                  <button
+                    key={device}
+                    className={`scope-chip ${active.device === device ? "on" : ""}`}
+                    onClick={() => saveLlmOptions({ device })}
+                    disabled={optBusy || (device === "gpu" && !gpuReady)}
+                    title={deviceHints[device]}
+                  >
+                    {deviceLabels[device] ?? device}
+                  </button>
+                ))}
+                {!gpuReady && (
+                  <span className="ask-hint">this build has no GPU backend — CPU only</span>
+                )}
+              </div>
+              <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+                {deviceHints[active.device] ?? ""} Changing this reloads the model on your next question
+                {active.auto_load ? " (or at launch)" : ""}.
+              </p>
+
+              <div className="book-sub" style={{ marginTop: 14, marginBottom: 6 }}>
+                KV cache precision
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {(active.kv_options ?? ["f16", "q8_0", "q4_0"]).map((kv) => (
+                  <button
+                    key={kv}
+                    className={`scope-chip ${active.kv === kv ? "on" : ""}`}
+                    onClick={() => saveLlmOptions({ kv })}
+                    disabled={optBusy}
+                    title={
+                      kv === "f16"
+                        ? "Full precision K/V cache — the default, no quality loss."
+                        : `Quantize the K/V cache to ${kv.toUpperCase()} — frees VRAM and RAM for a longer context, at a small precision cost.`
+                    }
+                  >
+                    {kv === "f16" ? "F16 (default)" : kv.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
+                Quantizing the K/V cache shrinks the memory the context needs — a Q8_0 or Q4_0 cache fits a
+                longer window in the same VRAM. It needs flash attention; if this llama.cpp build does not
+                support it, the app quietly falls back to F16.
+                {runtime?.loaded && (
+                  <>
+                    {" "}Currently loaded with <strong>{runtime.kv.toUpperCase()}</strong>
+                    {!runtime.kv_applied && active.kv !== "f16" ? " (fallback — not supported by this build)" : ""}
+                    {runtime.gpu_layers !== 0 ? ` · ${runtime.gpu_layers === -1 ? "all" : runtime.gpu_layers} GPU layers` : " · CPU"}.
+                  </>
+                )}
+              </p>
+
+              <label className="setting-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(active.auto_load)}
+                  disabled={optBusy}
+                  onChange={(e) => saveLlmOptions({ auto_load: e.target.checked })}
+                />
+                <span>
+                  <strong>Load the answer model when Hadith Finder starts</strong>
+                  <span className="setting-toggle-sub">
+                    The first question is then instant, at the cost of RAM from launch. Off by default —
+                    the model loads on first use instead.
+                  </span>
+                </span>
+              </label>
+
+              {llmStatus && (
+                <div className={`llm-status ${llmStatus.stage}`}>
+                  {llmStatus.stage === "loading" && (<><span className="spinner" /> Loading the model in the background…</>)}
+                  {llmStatus.stage === "ready" && (
+                    <>Model ready{runtime?.gpu_layers ? " on the GPU" : " on the CPU"} — answers will start immediately.</>
+                  )}
+                  {llmStatus.stage === "error" && (<>Could not load the model: {llmStatus.message}</>)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {models?.llm_active && (
           <div style={{ marginTop: 14 }}>
             <div className="book-sub" style={{ marginBottom: 6 }}>Context window</div>
@@ -321,7 +443,7 @@ export default function SettingsView() {
           is by TrevorJS; embeddings and reranking by BAAI) under their respective free licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
           publishers — use copies you're entitled to keep.
         </p>
-        <p style={{ color: "var(--text-faint)" }}>Version 0.1.0 · Not affiliated with any religious authority.</p>
+        <p style={{ color: "var(--text-faint)" }}>Version 0.2.0 · Not affiliated with any religious authority.</p>
       </div>
     </div>
   );

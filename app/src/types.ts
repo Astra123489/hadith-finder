@@ -47,6 +47,98 @@ export interface AskResult {
   /** The model answered without citing an excerpt. */
   unverified: boolean;
   scoped_empty: boolean;
+  /** The whole conversation after this answer, when the sidecar returns it. */
+  thread?: ThreadState;
+  chats?: ChatSummary[];
+}
+
+/** A saved conversation in the chat switcher. */
+export interface ChatSummary {
+  id: string;
+  title: string;
+  turns: number;
+  created_at: string;
+  updated_at: string;
+  active: boolean;
+}
+
+/** How full the model's context window is, and where compaction kicks in. */
+export interface ThreadUsage {
+  used: number;
+  ctx: number;
+  /** Token count at which older turns are summarised (70% of the window). */
+  compact_at: number;
+  /** 0–1 share of the window in use. */
+  pct: number;
+  history_tokens: number;
+  excerpt_tokens: number;
+  turns: number;
+  compactions: number;
+}
+
+/** One question and its grounded answer, kept for the conversation view. */
+export interface ThreadTurn {
+  id: number;
+  question: string;
+  answer: string;
+  citations: Citation[];
+  unverified: boolean;
+  created_at: string;
+}
+
+export interface ThreadState {
+  id: string;
+  /** Named after the question that started the chat. */
+  title: string;
+  turns: ThreadTurn[];
+  /** Replaces turns that were folded away to free context. */
+  summary: string;
+  compactions: number;
+  usage: ThreadUsage;
+}
+
+export interface Bookmark {
+  id: number;
+  /** "library" = a passage in an imported PDF; "canonical" = a bundled collection entry. */
+  kind: "library" | "canonical";
+  title: string;
+  chapter: string | null;
+  reference: string | null;
+  collection: string | null;
+  number: number | null;
+  page_start: number | null;
+  page_end: number | null;
+  excerpt: string;
+  gradings: string[];
+  spans: SpanMap;
+  book_id: number | null;
+  chunk_id: number | null;
+  /** The user's own note, so a saved hadith can say why it was kept. */
+  description: string | null;
+  created_at: string;
+}
+
+export type NewBookmark = Omit<Bookmark, "id" | "created_at">;
+
+/** The narration of the day from the bundled canonical collections. */
+export interface DailyHadith {
+  date: string;
+  collection: string;
+  collection_name: string;
+  short: string;
+  number: number;
+  book: string;
+  text: string;
+  also_in: {
+    collection: string;
+    collection_name: string;
+    short: string;
+    number: number;
+    book: string;
+    snippet: string;
+    label: string;
+    score: number;
+  }[];
 }
 
 export interface ImportResult {

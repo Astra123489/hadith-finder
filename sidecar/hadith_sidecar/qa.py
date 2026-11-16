@@ -20,6 +20,7 @@ import json
 import re
 
 from . import crossref, db
+from .llm import count_tokens
 from .retrieval import hybrid_search
 
 NOT_FOUND = "I could not find this in the loaded books."
@@ -33,9 +34,10 @@ Rules:
 4. Be precise: prefer short quotations in the language of the source (Arabic if Arabic), followed by explanation in the user's language.
 5. Authenticity: if the excerpts state a grading (sahih/hasan/da'if/...), report it. If not, say the book does not grade this narration.
 6. If asked to explain or summarize, reason step by step but keep the final answer compact.
+7. Earlier turns are background only. Answer the new question from this turn's excerpts, and cite only this turn's [S#] numbers — never a number from an earlier answer.
 """
 
-_MAX_EXCERPT_CHARS = 2600
+MAX_EXCERPT_CHARS = 2600
 _MAX_CITATION_EXCERPT = 700
 _TAG_GROUP = re.compile(r"\[([^\]]{1,40})\]")
 _TAG_INNER = re.compile(r"S(\d+)")
@@ -73,11 +75,11 @@ def _clip_to_query(text: str, query: str, limit: int) -> str:
     return prefix + text[start:end].strip() + suffix
 
 
-def _excerpt(titles, row, tag: str, query: str) -> str:
+def _excerpt(titles, row, tag: str, query: str, limit: int = MAX_EXCERPT_CHARS) -> str:
     pages = f"p. {row['page_start'] + 1}" if row["page_start"] == row["page_end"] else f"pp. {row['page_start'] + 1}-{row['page_end'] + 1}"
     ref = f" · hadith {row['hadith_ref']}" if row["hadith_ref"] else ""
     chapter = f" · {row['chapter']}" if row["chapter"] else ""
-    body = _clip_to_query(row["text"], query, _MAX_EXCERPT_CHARS)
+    body = _clip_to_query(row["text"], query, limit)
     return (
         f"[{tag}] {titles.get(row['book_id'], 'Unknown')}{chapter}{ref} · {pages}\n"
         f"{body}\n"
@@ -122,15 +124,18 @@ def _parallels(conn, row, titles) -> list[dict]:
 
 def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker,
         top_k: int = 5, pool: int = 30,
-        on_token=None, ask_id: str | None = None) -> dict:
+        on_token=None, ask_id: str | None = None,
+        context: str = "", excerpt_chars: int = MAX_EXCERPT_CHARS) -> dict:
     if book_ids is not None and len(book_ids) == 0:
         return {"answer": NOT_FOUND, "citations": [], "retrieved": 0,
-                "unverified": False, "scoped_empty": True}
+                "unverified": False, "scoped_empty": True,
+                "prompt_tokens": 0, "excerpt_tokens": 0}
 
     hits = hybrid_search(conn, query, embedder, book_ids=book_ids, pool=pool)
     if not hits:
         return {"answer": NOT_FOUND, "citations": [], "retrieved": 0,
-                "unverified": False, "scoped_empty": False}
+                "unverified": False, "scoped_empty": False,
+                "prompt_tokens": 0, "excerpt_tokens": 0}
 
     chunks = db.get_chunks(conn, [h.chunk_id for h in hits])
     by_id = {r["id"]: r for r in chunks}
@@ -145,14 +150,23 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
     titles = _book_titles(conn, list({by_id[h.chunk_id]["book_id"] for h in chosen}))
     excerpts = []
     for i, h in enumerate(chosen):
-        excerpts.append(_excerpt(titles, by_id[h.chunk_id], f"S{i + 1}", query))
-    user = "Excerpts:\n\n" + "\n".join(excerpts) + f"\nQuestion: {query}"
+        excerpts.append(
+            _excerpt(titles, by_id[h.chunk_id], f"S{i + 1}", query, excerpt_chars)
+        )
+    excerpt_text = "\n".join(excerpts)
+    user = "Excerpts:\n\n" + excerpt_text
+    if context:
+        user += "\nEarlier in this conversation:\n" + context + "\n"
+    user += f"\nQuestion: {query}"
+    prompt_tokens = count_tokens(llm, SYSTEM_PROMPT + user)
+    excerpt_tokens = count_tokens(llm, excerpt_text)
 
     answer = llm.generate(SYSTEM_PROMPT, user, on_token=on_token)
 
     if _is_not_found(answer):
         return {"answer": NOT_FOUND, "citations": [], "retrieved": len(hits),
-                "unverified": False, "scoped_empty": False}
+                "unverified": False, "scoped_empty": False,
+                "prompt_tokens": prompt_tokens, "excerpt_tokens": excerpt_tokens}
 
     tag_numbers = _tags_in(answer)
     seen: list[int] = []
@@ -186,4 +200,6 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         "unverified": not citations,
         "scoped_empty": False,
         "ask_id": ask_id,
+        "prompt_tokens": prompt_tokens,
+        "excerpt_tokens": excerpt_tokens,
     }

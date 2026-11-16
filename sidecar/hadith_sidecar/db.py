@@ -62,8 +62,36 @@ CREATE TABLE IF NOT EXISTS gradings(
   UNIQUE(chunk_id, grading, raw)
 );
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS bookmarks(
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL DEFAULT 'library',
+  title TEXT NOT NULL,
+  chapter TEXT,
+  reference TEXT,
+  collection TEXT,
+  number INTEGER,
+  page_start INTEGER,
+  page_end INTEGER,
+  excerpt TEXT NOT NULL,
+  gradings TEXT,
+  spans_json TEXT,
+  book_id INTEGER,
+  chunk_id INTEGER,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS chats(
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  turns INTEGER NOT NULL DEFAULT 0,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_chunks_book ON chunks(book_id);
 CREATE INDEX IF NOT EXISTS idx_gradings_chunk ON gradings(chunk_id);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 """
 
 
@@ -214,6 +242,113 @@ def gradings_for(conn, chunk_id: int) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT grading, raw FROM gradings WHERE chunk_id = ?", (chunk_id,)
     ).fetchall()
+
+
+# ---------- bookmarks ----------
+
+_BOOKMARK_FIELDS = (
+    "kind", "title", "chapter", "reference", "collection", "number",
+    "page_start", "page_end", "excerpt", "gradings", "spans_json",
+    "book_id", "chunk_id", "description",
+)
+
+
+def add_bookmark(conn, data: dict) -> int:
+    """Save a narration the user wants to keep, with their own note."""
+    excerpt = " ".join(str(data.get("excerpt") or "").split())
+    if not excerpt:
+        raise ValueError("a bookmark needs an excerpt")
+    values = {key: data.get(key) for key in _BOOKMARK_FIELDS}
+    values["excerpt"] = excerpt
+    values["kind"] = values["kind"] or "library"
+    values["title"] = values["title"] or "Untitled source"
+    gradings = values["gradings"]
+    if isinstance(gradings, (list, tuple)):
+        values["gradings"] = json.dumps(list(gradings))
+    spans = values["spans_json"]
+    if isinstance(spans, (dict, list)):
+        values["spans_json"] = json.dumps(spans)
+    columns = ", ".join(values)
+    marks = ", ".join("?" for _ in values)
+    cur = conn.execute(
+        f"INSERT INTO bookmarks({columns}) VALUES ({marks})", tuple(values.values())
+    )
+    return int(cur.lastrowid)
+
+
+def list_bookmarks(conn) -> list[dict]:
+    rows = conn.execute("SELECT * FROM bookmarks ORDER BY id DESC").fetchall()
+    out = []
+    for r in rows:
+        item = dict(r)
+        try:
+            item["gradings"] = json.loads(item["gradings"] or "[]")
+        except (TypeError, ValueError):
+            item["gradings"] = []
+        try:
+            item["spans"] = json.loads(item.pop("spans_json") or "{}")
+        except (TypeError, ValueError):
+            item["spans"] = {}
+        out.append(item)
+    return out
+
+
+def delete_bookmark(conn, bookmark_id: int) -> bool:
+    cur = conn.execute("DELETE FROM bookmarks WHERE id = ?", (int(bookmark_id),))
+    return cur.rowcount > 0
+
+
+def set_bookmark_description(conn, bookmark_id: int, description: str | None) -> bool:
+    cur = conn.execute(
+        "UPDATE bookmarks SET description = ? WHERE id = ?",
+        ((description or "").strip() or None, int(bookmark_id)),
+    )
+    return cur.rowcount > 0
+
+
+# ---------- chats ----------
+
+def save_chat(conn, chat: dict) -> None:
+    """Upsert one conversation; the transcript itself lives in `data` as JSON."""
+    turns = chat.get("turns") or []
+    conn.execute(
+        "INSERT INTO chats(id, title, turns, data, created_at, updated_at) "
+        "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+        "title=excluded.title, turns=excluded.turns, data=excluded.data, "
+        "updated_at=excluded.updated_at",
+        (
+            chat["id"],
+            chat.get("title") or "",
+            len(turns),
+            json.dumps(chat, ensure_ascii=False),
+            chat.get("created_at") or "",
+            chat.get("updated_at") or chat.get("created_at") or "",
+        ),
+    )
+
+
+def load_chat(conn, chat_id: str) -> dict | None:
+    row = conn.execute("SELECT data FROM chats WHERE id = ?", (chat_id,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["data"])
+    except (TypeError, ValueError):
+        return None
+
+
+def list_chats(conn) -> list[dict]:
+    """Chat list without the transcripts, newest first."""
+    rows = conn.execute(
+        "SELECT id, title, turns, created_at, updated_at FROM chats "
+        "ORDER BY updated_at DESC, id DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_chat(conn, chat_id: str) -> bool:
+    cur = conn.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+    return cur.rowcount > 0
 
 
 def set_meta(conn, key: str, value: str) -> None:

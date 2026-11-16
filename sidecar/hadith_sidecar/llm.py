@@ -27,6 +27,28 @@ MIN_CTX = 1024
 MAX_CTX = 131072
 _STOP = ["<|im_end|>", "<|endoftext|>"]
 
+# Where the weights live. "auto" uses the GPU when this build has an offload
+# backend, otherwise the CPU.
+DEVICES = ("auto", "gpu", "cpu")
+DEFAULT_DEVICE = "auto"
+
+# llama.cpp ggml types for the K/V cache. F16 is the default every build
+# supports; the quantized caches trade a little precision for a lot of VRAM.
+KV_CACHE_TYPES = {"f16": 1, "q8_0": 8, "q4_0": 2}
+DEFAULT_KV = "f16"
+
+
+def resolve_device(stored: str | None = None, explicit: str | None = None) -> str:
+    raw = (explicit or stored or os.environ.get("HADITH_DEVICE") or DEFAULT_DEVICE)
+    value = str(raw).strip().lower()
+    return value if value in DEVICES else DEFAULT_DEVICE
+
+
+def resolve_kv(stored: str | None = None, explicit: str | None = None) -> str:
+    raw = (explicit or stored or os.environ.get("HADITH_KV_CACHE") or DEFAULT_KV)
+    value = str(raw).strip().lower()
+    return value if value in KV_CACHE_TYPES else DEFAULT_KV
+
 
 def _nvidia_smi() -> dict | None:
     """Device name and VRAM from nvidia-smi (absent on non-NVIDIA machines)."""
@@ -115,7 +137,9 @@ def resolve_model_path(stored: str | None = None, explicit: str | None = None) -
     return str(default_llm_path())
 
 
-def active_model_info(stored: str | None = None, ctx=None) -> dict:
+def active_model_info(stored: str | None = None, ctx=None,
+                      device: str | None = None, kv: str | None = None,
+                      auto_load: bool = False) -> dict:
     path = Path(resolve_model_path(stored))
     exists = path.is_file()
     return {
@@ -128,6 +152,11 @@ def active_model_info(stored: str | None = None, ctx=None) -> dict:
         "ctx_default": DEFAULT_CTX,
         "ctx_min": MIN_CTX,
         "ctx_max": MAX_CTX,
+        "device": resolve_device(device),
+        "device_options": list(DEVICES),
+        "kv": resolve_kv(kv),
+        "kv_options": list(KV_CACHE_TYPES),
+        "auto_load": bool(auto_load),
         "gpu": gpu_status(),
     }
 
@@ -191,12 +220,28 @@ class ThoughtStream:
         return events
 
 
+def count_tokens(provider, text: str) -> int:
+    """Tokens in `text` for this model, or a 4-chars-per-token estimate."""
+    if not text:
+        return 0
+    fn = getattr(provider, "count_tokens", None)
+    if fn is not None:
+        try:
+            return max(1, int(fn(text)))
+        except Exception:
+            pass
+    return max(1, len(text) // 4)
+
+
 class LLMProvider:
     name = "abstract"
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
                  temperature: float = 0.2, on_token=None) -> str:
         raise NotImplementedError
+
+    def count_tokens(self, text: str) -> int:
+        return max(1, len(text) // 4) if text else 0
 
 
 class EchoProvider(LLMProvider):
@@ -219,7 +264,9 @@ class LlamaCppProvider(LLMProvider):
     context_size = 6144
 
     def __init__(self, model_path: str | None = None, *, n_ctx: int | None = None,
-                 stored: str | None = None, stored_ctx=None):
+                 stored: str | None = None, stored_ctx=None,
+                 device: str | None = None, kv: str | None = None,
+                 stored_device: str | None = None, stored_kv: str | None = None):
         self.model_path = resolve_model_path(stored, model_path)
         if not Path(self.model_path).is_file():
             raise RuntimeError(
@@ -235,7 +282,9 @@ class LlamaCppProvider(LLMProvider):
 
         threads = max(1, (os.cpu_count() or 4) // 2)
         self.context_size = resolve_ctx(stored_ctx, n_ctx)
-        self.gpu_layers = self._gpu_layers(llama_supports_gpu_offload)
+        self.device = resolve_device(stored_device, device)
+        self.kv_cache = resolve_kv(stored_kv, kv)
+        self.gpu_layers = self._gpu_layers(llama_supports_gpu_offload, self.device)
         kwargs = dict(
             model_path=self.model_path,
             n_ctx=self.context_size,
@@ -244,19 +293,42 @@ class LlamaCppProvider(LLMProvider):
             n_gpu_layers=self.gpu_layers,
             verbose=False,
         )
-        # Flash attention cuts prompt-processing time on both CPU and GPU
-        # builds; older builds reject the flag, so fall back quietly.
-        try:
-            self._llm = Llama(flash_attn=True, **kwargs)
-        except (TypeError, ValueError):
-            self._llm = Llama(**kwargs)
-        except RuntimeError:
-            # The GPU could not take the model (driver, VRAM, backend). Better a
-            # slow answer on the CPU than a hard failure.
-            if not self.gpu_layers:
-                raise
-            self.gpu_layers = 0
-            self._llm = Llama(**dict(kwargs, n_gpu_layers=0))
+        # Quantized K/V caches need flash attention; F16 works either way.
+        kv_type = KV_CACHE_TYPES.get(self.kv_cache)
+        candidates: list[dict] = []
+        if kv_type is not None and self.kv_cache != "f16":
+            candidates.append({"flash_attn": True, "type_k": kv_type, "type_v": kv_type})
+        # Flash attention cuts prompt-processing time on both CPU and GPU builds;
+        # older builds reject the flag, so fall back quietly.
+        candidates.append({"flash_attn": True})
+        candidates.append({})
+
+        self.kv_applied = False
+        self.flash_attn = False
+        last_error: Exception | None = None
+        index = 0
+        while index < len(candidates):
+            extra = candidates[index]
+            try:
+                self._llm = Llama(**dict(kwargs, **extra))
+                self.kv_applied = bool(extra.get("type_k"))
+                self.flash_attn = bool(extra.get("flash_attn"))
+                break
+            except (TypeError, ValueError) as exc:
+                # This build does not know that option; try a simpler load.
+                last_error = exc
+                index += 1
+            except RuntimeError as exc:
+                last_error = exc
+                if kwargs.get("n_gpu_layers"):
+                    # The GPU could not take the model (driver, VRAM, backend).
+                    # Better a slow answer on the CPU than a hard failure.
+                    kwargs["n_gpu_layers"] = 0
+                    self.gpu_layers = 0
+                    continue
+                index += 1
+        else:
+            raise last_error or RuntimeError("could not load the language model")
         self.gpu = gpu_status(self.gpu_layers)
         self._chat_ok = True
         # Gemma 4 only reasons when its template is told to, and
@@ -269,17 +341,30 @@ class LlamaCppProvider(LLMProvider):
             pass
         self.thinking = arch.startswith("gemma")
 
-    @staticmethod
-    def _gpu_layers(supports) -> int:
-        raw = (os.environ.get("HADITH_GPU_LAYERS") or "auto").strip().lower()
-        if raw in ("auto", ""):
-            try:
-                return -1 if supports() else 0
-            except Exception:
-                return 0
+    def count_tokens(self, text: str) -> int:
+        """Exact token count from the loaded model, for the context meter."""
+        if not text:
+            return 0
         try:
-            return int(raw)
-        except ValueError:
+            return max(1, len(self._llm.tokenize(text.encode("utf-8"), add_bos=False)))
+        except Exception:
+            return max(1, len(text) // 4)
+
+    @staticmethod
+    def _gpu_layers(supports, device: str = DEFAULT_DEVICE) -> int:
+        # An explicit layer count still wins, for people who want partial
+        # offload on a small GPU.
+        raw = (os.environ.get("HADITH_GPU_LAYERS") or "").strip().lower()
+        if raw not in ("", "auto"):
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+        if device == "cpu":
+            return 0
+        try:
+            return -1 if supports() else 0
+        except Exception:
             return 0
 
     def _messages(self, system: str, user: str) -> list[dict]:
@@ -411,11 +496,16 @@ class LlamaCppProvider(LLMProvider):
 
 
 def get_llm(kind: str | None = None, *, model_path: str | None = None,
-            stored: str | None = None, stored_ctx=None) -> LLMProvider:
+            stored: str | None = None, stored_ctx=None,
+            device: str | None = None, kv: str | None = None,
+            stored_device: str | None = None, stored_kv: str | None = None) -> LLMProvider:
     """kind: 'auto' (llama-cpp, else error), 'llama-cpp', 'echo' (tests only)."""
     kind = (kind or os.environ.get("HADITH_LLM") or "auto").lower()
     if kind == "echo":
         return EchoProvider()
     if kind in ("llama-cpp", "llama_cpp", "auto"):
-        return LlamaCppProvider(model_path=model_path, stored=stored, stored_ctx=stored_ctx)
+        return LlamaCppProvider(
+            model_path=model_path, stored=stored, stored_ctx=stored_ctx,
+            device=device, kv=kv, stored_device=stored_device, stored_kv=stored_kv,
+        )
     raise ValueError(f"unknown LLM provider: {kind}")

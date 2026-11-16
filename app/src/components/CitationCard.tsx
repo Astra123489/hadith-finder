@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Citation, Parallel } from "../types";
 
 const GRADING_CLASS: Record<string, string> = {
@@ -26,6 +27,9 @@ export function citationLabel(c: Citation): string {
 interface Props {
   citation: Citation;
   onHighlight: (c: Citation) => void;
+  onBookmark?: (c: Citation, description: string) => Promise<void>;
+  /** Keeps anchor ids unique when several answers share a page. */
+  idPrefix?: string;
 }
 
 function ParallelRow({ p }: { p: Parallel }) {
@@ -41,10 +45,32 @@ function ParallelRow({ p }: { p: Parallel }) {
   );
 }
 
-export default function CitationCard({ citation: c, onHighlight }: Props) {
+export default function CitationCard({ citation: c, onHighlight, onBookmark, idPrefix = "citation" }: Props) {
   const n = c.source_index;
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!onBookmark) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onBookmark(c, note);
+      setSaved(true);
+      setShowForm(false);
+      setNote("");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="card citation" id={`citation-${n}`}>
+    <div className="card citation" id={`${idPrefix}-${n}`}>
       <div className="citation-id">Source S{n}</div>
       <div className="citation-loc">{citationLabel(c)}</div>
       <div className="citation-excerpt">{c.excerpt}</div>
@@ -67,10 +93,42 @@ export default function CitationCard({ citation: c, onHighlight }: Props) {
           ))}
         </div>
       )}
-      <div>
+
+      {showForm && (
+        <div className="bookmark-form">
+          <textarea
+            className="bookmark-note"
+            rows={2}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Why keep this one? (optional)"
+            aria-label="Bookmark description"
+          />
+          <div className="bookmark-form-row">
+            <button className="btn btn-primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save bookmark"}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowForm(false)} disabled={saving}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <div className="error-banner">{error}</div>}
+
+      <div className="citation-actions">
         <button className="btn" onClick={() => onHighlight(c)}>
           ✎ Highlight in book · p. {c.page_start + 1}
         </button>
+        {onBookmark && (
+          <button
+            className={`btn ${saved ? "btn-saved" : "btn-ghost"}`}
+            onClick={() => setShowForm((v) => !v)}
+            disabled={saved}
+          >
+            {saved ? "★ Bookmarked" : "★ Bookmark"}
+          </button>
+        )}
       </div>
     </div>
   );
