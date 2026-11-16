@@ -589,7 +589,12 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit();
+              // Enter asks, Shift+Enter starts a new line. Never swallow the Enter
+              // that confirms an IME composition (Arabic input).
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                submit();
+              }
             }}
           />
           <div className="ask-row">
