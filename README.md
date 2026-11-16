@@ -197,17 +197,19 @@ Installed copies check GitHub Releases for their updates (`plugins.updater` in
 `tauri.conf.json` points at the latest release's `latest.json`), so publishing a release is
 all it takes to reach users; Settings → Version & updates can also check on demand.
 
-Pushing a tag runs `.github/workflows/release.yml`, which builds the sidecar, builds and signs
-the NSIS installer, and attaches it plus `latest.json` to a **draft** release:
+`scripts/release.py` bumps the version everywhere it lives — `app/package.json` and
+`package-lock.json`, `tauri.conf.json`, `Cargo.toml` and `Cargo.lock`, the sidecar's
+`pyproject.toml` and `__version__` — then commits, tags `vX.Y.Z` and pushes. The tag is what
+runs `.github/workflows/release.yml`, which builds the sidecar, builds and signs the NSIS
+installer, and publishes the release itself with the installer, its `.sig` and `latest.json`:
 
 ```bash
-# 1. bump the version in app/package.json, app/src-tauri/Cargo.toml,
-#    app/src-tauri/tauri.conf.json, sidecar/pyproject.toml
-git commit -am "Release v0.3.1"
-git tag v0.3.1
-git push origin main --tags
-# 2. review the draft release on GitHub and publish it
+python scripts/release.py 0.4.0            # or "minor" / "patch"
+python scripts/release.py patch --dry-run  # show the plan, change nothing
 ```
+
+Run it from a clean `main`; it refuses when the tree is dirty or the tag already exists, so a
+tag can no longer describe a tree whose versions disagree.
 
 Updates are signed with a minisign key. The public half lives in `tauri.conf.json`; the private
 half lives **outside this repository**, at `~/.tauri/hadith-finder.key`

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -110,5 +114,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Hadith Finder ${{ github.ref_name }}"
           releaseBody: "Download the installer below. Installed copies update themselves from this release."
-          releaseDraft: true
+          # The tag is the decision to ship, so this run publishes rather than
+          # leaving a draft for someone to remember to click.
+          releaseDraft: false
           prerelease: false
