@@ -443,10 +443,14 @@ export default function SettingsView() {
             />
           </label>
         </div>
+        {notify?.schedule_error && (
+          <p className="setting-error">{notify.schedule_error}</p>
+        )}
         <p className="setting-note">
-          If the computer is off or asleep at that time, the narration waits: you'll see it as soon
-          as Hadith Finder is next running. Each day reaches the desktop once — it never repeats,
-          and it never opens the app window itself.
+          Windows raises it from Task Scheduler, so Hadith Finder does not need to be open and
+          nothing keeps running in the background: a short-lived process shows the notification and
+          exits. If the computer was off at that time, Windows runs it as soon as it is back. Each
+          day reaches the desktop once.
         </p>
       </div>
 

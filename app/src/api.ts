@@ -22,6 +22,9 @@ export interface DailyNotify {
   due: boolean;
   date: string;
   hadith: DailyHadith | null;
+  /** Whether the Windows task that delivers it is registered. */
+  scheduled?: boolean;
+  schedule_error?: string | null;
 }
 
 export interface ReindexProgress {

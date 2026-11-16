@@ -360,13 +360,86 @@ async fn daily_notify(app: AppHandle) -> Result<Value, String> {
         .map_err(|e| e.to_string())?
 }
 
+const TASK_NAME: &str = "Hadith Finder Daily Hadith";
+
+/// True when Windows Task Scheduler started us just to raise the reminder.
+fn notify_mode() -> bool {
+    std::env::args().skip(1).any(|arg| arg == "--notify")
+}
+
+/// Show today's reminder, then leave. Called by the scheduled task.
+fn run_notify_run(app: AppHandle) {
+    std::thread::spawn(move || {
+        for _ in 0..160 {
+            if call_blocking(&app, "ping", json!({}), 10).is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        notify_tick(&app);
+        app.exit(0);
+    });
+}
+
+/// Windows only shows a notification from a running process, so the schedule
+/// starts this executable with `--notify`: it hides its window, raises the
+/// toast and quits, leaving nothing in the background. `-StartWhenAvailable`
+/// is what delivers a day whose time passed while the machine was off.
+#[cfg(windows)]
+fn sync_task(enabled: bool, time: &str) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = exe.to_string_lossy().replace('\'', "''");
+    let script = if enabled {
+        format!(
+            "$ErrorActionPreference = 'Stop'\n\
+             $action = New-ScheduledTaskAction -Execute '{exe}' -Argument '--notify'\n\
+             $trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::ParseExact('{time}', 'HH:mm', $null))\n\
+             $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)\n\
+             Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Description \"Shows the day's hadith as a desktop notification.\" -Force | Out-Null\n"
+        )
+    } else {
+        format!(
+            "Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue\n"
+        )
+    };
+    let path = std::env::temp_dir().join("hadith-finder-notify.ps1");
+    std::fs::write(&path, script).map_err(|e| e.to_string())?;
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&path);
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let detail = if detail.is_empty() {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    } else {
+        detail
+    };
+    Err(format!("could not update the Windows task: {detail}"))
+}
+
+#[cfg(not(windows))]
+fn sync_task(_enabled: bool, _time: &str) -> Result<(), String> {
+    Ok(())
+}
+
 #[tauri::command]
 async fn set_daily_notify(
     app: AppHandle,
     enabled: Option<bool>,
     time: Option<String>,
 ) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let state = tauri::async_runtime::spawn_blocking(move || {
         let mut params = serde_json::Map::new();
         if let Some(enabled) = enabled {
             params.insert("enabled".into(), json!(enabled));
@@ -377,7 +450,30 @@ async fn set_daily_notify(
         call_blocking(&app, "set_daily_notify", Value::Object(params), 60)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+
+    let armed = state.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+    let at = state
+        .get("time")
+        .and_then(Value::as_str)
+        .unwrap_or("07:00")
+        .to_string();
+    let schedule = tauri::async_runtime::spawn_blocking(move || sync_task(armed, &at))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut out = state.as_object().cloned().unwrap_or_default();
+    match schedule {
+        Ok(()) => {
+            out.insert("scheduled".into(), json!(armed));
+            out.insert("schedule_error".into(), Value::Null);
+        }
+        Err(e) => {
+            out.insert("scheduled".into(), json!(false));
+            out.insert("schedule_error".into(), json!(e));
+        }
+    }
+    Ok(Value::Object(out))
 }
 
 /// Windows toasts clip long bodies, so the reminder carries the opening lines.
@@ -457,7 +553,16 @@ pub fn run() {
             let sc = sidecar::Sidecar::spawn(&library, Some(app.handle().clone()))
                 .map_err(|e| e.to_string())?;
             app.manage(SidecarState(sc));
-            start_daily_notify(app.handle().clone());
+            if notify_mode() {
+                // Started by the scheduler: hide the window it came with, raise
+                // the one toast and leave. Nothing stays running.
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                run_notify_run(app.handle().clone());
+            } else {
+                start_daily_notify(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
