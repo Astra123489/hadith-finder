@@ -133,6 +133,93 @@ except SystemExit as exc:
 shown = call("mark_daily_notify", {"date": armed["date"]})
 check("notify shown once a day", shown["due"] is False and shown["last_shown"] == armed["date"])
 
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+class _StubEndpoint(BaseHTTPRequestHandler):
+    """A minimal OpenAI-compatible endpoint, streaming and plain."""
+
+    seen_auth = None
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        type(self).seen_auth = self.headers.get("Authorization")
+        if body.get("stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for piece in ("Grounded ", "answer ", "[S1]."):
+                event = {"choices": [{"delta": {"content": piece}}]}
+                self.wfile.write(b"data: " + json.dumps(event).encode() + bytes((13, 10, 13, 10)))
+            self.wfile.write(b"data: [DONE]" + bytes((13, 10, 13, 10)))
+            return
+        payload = json.dumps(
+            {"model": body.get("model"), "choices": [{"message": {"content": "ready"}}]}
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):
+        pass
+
+
+endpoint = HTTPServer(("127.0.0.1", 0), _StubEndpoint)
+threading.Thread(target=endpoint.serve_forever, daemon=True).start()
+api_base = f"http://127.0.0.1:{endpoint.server_port}/v1"
+
+cfg = call("api_config")["api"]
+check("endpoint off by default", cfg["enabled"] is False and cfg["has_key"] is False)
+
+try:
+    call("set_api_config", {"base_url": "ftp://example.com"})
+    check("endpoint rejects a bad url", False)
+except SystemExit as exc:
+    check("endpoint rejects a bad url", "http" in str(exc))
+
+stored = call("set_api_key", {"key": "sk-test-123"})["api"]
+check("key stored", stored["has_key"] is True)
+check("key never echoed back", "sk-test-123" not in json.dumps(stored))
+key_file = LIB + ".keys.json"
+check(
+    "key file holds ciphertext only",
+    os.path.isfile(key_file) and "sk-test-123" not in open(key_file, encoding="utf-8").read(),
+)
+
+armed = call(
+    "set_api_config", {"base_url": api_base, "model": "test-model", "enabled": True}
+)["api"]
+check("endpoint ready", armed["ready"] is True and armed["base_url"] == api_base, armed["model"])
+
+test = call("test_api", {})["test"]
+check("endpoint answers a test call", test["ok"] is True and test["model"] == "test-model", test["reply"])
+check("key sent as a bearer token", _StubEndpoint.seen_auth == "Bearer sk-test-123")
+
+listed = call("list_llms")
+check(
+    "model picker offers the endpoint",
+    listed["llms"][0]["path"] == "api:openai" and listed["active"] == "api:openai",
+    listed["llms"][0]["name"],
+)
+
+sys.path.insert(0, HERE)
+from hadith_sidecar.llm import OpenAIProvider
+
+provider = OpenAIProvider(api_base, "test-model", "sk-test-123")
+tokens = []
+answer = provider.generate("system", "user", on_token=lambda piece, phase: tokens.append(piece))
+check("provider streams the answer", answer == "Grounded answer [S1].", answer)
+check("provider emits each delta", len(tokens) == 3, len(tokens))
+
+cleared = call("clear_api_key")["api"]
+check("key cleared", cleared["has_key"] is False and cleared["ready"] is False)
+check("key file removed", not os.path.isfile(key_file))
+endpoint.shutdown()
+
 import sqlite3
 
 # The collection really imported, with one of its narrations inside: the

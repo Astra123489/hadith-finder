@@ -14,6 +14,22 @@ import type {
   ThreadUsage,
 } from "./types";
 
+/** A user-supplied OpenAI-compatible endpoint. The key itself never leaves the sidecar. */
+export interface ApiConfig {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  has_key: boolean;
+  ready: boolean;
+}
+
+export interface ApiTest {
+  ok: boolean;
+  model: string;
+  latency_ms: number;
+  reply: string;
+}
+
 /** The daily-hadith reminder: its schedule, and whether today's is due now. */
 export interface DailyNotify {
   enabled: boolean;
@@ -421,6 +437,15 @@ function demoThreadState(chat: DemoChat = activeDemoChat()): ThreadState {
   };
 }
 
+/** The demo keeps the endpoint settings in memory and stores nothing. */
+const demoApiConfig = {
+  enabled: false,
+  base_url: "",
+  model: "",
+  has_key: false,
+  ready: false,
+};
+
 /** The demo keeps the schedule in memory; nothing is ever delivered. */
 const demoNotify = { enabled: false, time: "07:00", last_shown: null as string | null };
 
@@ -563,19 +588,51 @@ const demoApi = {
     ),
   listLlms: () =>
     Promise.resolve({
-      active: "(preview)",
+      active: demoApiConfig.enabled ? "api:openai" : "(preview)",
       llms: [
+        ...(demoApiConfig.enabled
+          ? [
+              {
+                path: "api:openai",
+                name: `Your endpoint · ${demoApiConfig.model || "unnamed model"}`,
+                size: 0,
+                installed: Boolean(demoApiConfig.model),
+                default: false,
+                selected: true,
+              },
+            ]
+          : []),
         {
           path: "(preview)",
           name: "Gemma 4 E2B Instruct (Q8_0)",
           size: 4967490080,
           installed: true,
           default: true,
-          selected: true,
+          selected: !demoApiConfig.enabled,
         },
       ],
     }),
   stats: () => Promise.resolve({ books: 1, chunks: 14, embedded: 14 }),
+  apiConfig: () => Promise.resolve({ api: { ...demoApiConfig } }),
+  setApiConfig: (opts: { enabled?: boolean; base_url?: string; model?: string }) => {
+    if (opts.enabled !== undefined) demoApiConfig.enabled = opts.enabled;
+    if (opts.base_url !== undefined) demoApiConfig.base_url = opts.base_url;
+    if (opts.model !== undefined) demoApiConfig.model = opts.model;
+    demoApiConfig.ready = demoApiConfig.enabled && !!demoApiConfig.base_url && !!demoApiConfig.model && demoApiConfig.has_key;
+    return Promise.resolve({ api: { ...demoApiConfig } });
+  },
+  setApiKey: () => {
+    demoApiConfig.has_key = true;
+    demoApiConfig.ready = demoApiConfig.enabled && !!demoApiConfig.base_url && !!demoApiConfig.model;
+    return Promise.resolve({ api: { ...demoApiConfig } });
+  },
+  clearApiKey: () => {
+    demoApiConfig.has_key = false;
+    demoApiConfig.ready = false;
+    return Promise.resolve({ api: { ...demoApiConfig } });
+  },
+  testApi: () =>
+    Promise.resolve({ test: { ok: true, model: demoApiConfig.model || "demo", latency_ms: 12, reply: "ready" } }),
   dailyNotify: () =>
     Promise.resolve({
       ...demoNotify,
@@ -704,6 +761,18 @@ const realApi = {
     ),
 
   listLlms: () => invoke<{ llms: LlmOption[]; active: string }>("list_llms"),
+
+  apiConfig: () => invoke<{ api: ApiConfig }>("api_config", {}),
+
+  setApiConfig: (opts: { enabled?: boolean; base_url?: string; model?: string }) =>
+    invoke<{ api: ApiConfig }>("set_api_config", opts),
+
+  setApiKey: (key: string) => invoke<{ api: ApiConfig }>("set_api_key", { key }),
+
+  clearApiKey: () => invoke<{ api: ApiConfig }>("clear_api_key", {}),
+
+  testApi: (opts: { base_url?: string; model?: string; key?: string }) =>
+    invoke<{ test: ApiTest }>("test_api", opts),
 
   dailyNotify: () => invoke<DailyNotify>("daily_notify", {}),
 

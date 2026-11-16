@@ -354,6 +354,77 @@ async fn daily_hadith(app: AppHandle, date: Option<String>) -> Result<Value, Str
 }
 
 #[tauri::command]
+async fn api_config(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "api_config", json!({}), 60))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_api_config(
+    app: AppHandle,
+    enabled: Option<bool>,
+    base_url: Option<String>,
+    model: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut params = serde_json::Map::new();
+        if let Some(enabled) = enabled {
+            params.insert("enabled".into(), json!(enabled));
+        }
+        if let Some(base_url) = base_url {
+            params.insert("base_url".into(), json!(base_url));
+        }
+        if let Some(model) = model {
+            params.insert("model".into(), json!(model));
+        }
+        call_blocking(&app, "set_api_config", Value::Object(params), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_api_key(app: AppHandle, key: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "set_api_key", json!({ "key": key }), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn clear_api_key(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "clear_api_key", json!({}), 60))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn test_api(
+    app: AppHandle,
+    base_url: Option<String>,
+    model: Option<String>,
+    key: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut params = serde_json::Map::new();
+        if let Some(base_url) = base_url {
+            params.insert("base_url".into(), json!(base_url));
+        }
+        if let Some(model) = model {
+            params.insert("model".into(), json!(model));
+        }
+        if let Some(key) = key {
+            params.insert("key".into(), json!(key));
+        }
+        call_blocking(&app, "test_api", Value::Object(params), 120)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn daily_notify(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "daily_notify", json!({}), 60))
         .await
@@ -596,6 +667,11 @@ pub fn run() {
             delete_bookmark,
             update_bookmark,
             daily_hadith,
+            api_config,
+            set_api_config,
+            set_api_key,
+            clear_api_key,
+            test_api,
             daily_notify,
             set_daily_notify,
             stats,

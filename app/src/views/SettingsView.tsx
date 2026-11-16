@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   api,
   formatMB,
+  type ApiConfig,
   type DailyNotify,
   type DownloadProgress,
   type ModelsStatus,
@@ -22,6 +23,12 @@ export default function SettingsView() {
   const [optBusy, setOptBusy] = useState(false);
   const [notify, setNotify] = useState<DailyNotify | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
+  const [endpoint, setEndpoint] = useState<ApiConfig | null>(null);
+  const [apiBase, setApiBase] = useState("");
+  const [apiModel, setApiModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiBusy, setApiBusy] = useState(false);
+  const [apiNote, setApiNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [llmStatus, setLlmStatus] = useState<{
     stage: "loading" | "ready" | "error";
     message?: string;
@@ -38,6 +45,14 @@ export default function SettingsView() {
   useEffect(() => {
     api.ping().then(setInfo).catch(() => setInfo(null));
     api.dailyNotify().then(setNotify).catch(() => setNotify(null));
+    api
+      .apiConfig()
+      .then(({ api: cfg }) => {
+        setEndpoint(cfg);
+        setApiBase(cfg.base_url);
+        setApiModel(cfg.model);
+      })
+      .catch(() => setEndpoint(null));
     refresh();
     let unlisten: (() => void) | undefined;
     api.onProgress((p) => {
@@ -56,6 +71,71 @@ export default function SettingsView() {
     const ctx = models?.llm_active?.ctx;
     if (ctx) setCtxValue(String(ctx));
   }, [models?.llm_active?.ctx]);
+
+  /** Save the endpoint fields and the key in one go, then switch over. */
+  const saveEndpoint = async (enabled: boolean) => {
+    setApiBusy(true);
+    setApiNote(null);
+    setError(null);
+    try {
+      if (apiKey.trim()) {
+        await api.setApiKey(apiKey.trim());
+        setApiKey("");
+      }
+      const { api: cfg } = await api.setApiConfig({
+        enabled,
+        base_url: apiBase,
+        model: apiModel,
+      });
+      setEndpoint(cfg);
+      setApiNote({
+        ok: true,
+        text: cfg.ready
+          ? "Saved — answers will come from your endpoint."
+          : "Saved. Add whatever is missing above to switch answers over.",
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setApiBusy(false);
+    }
+  };
+
+  const testEndpoint = async () => {
+    setApiBusy(true);
+    setApiNote(null);
+    try {
+      const { test } = await api.testApi({
+        base_url: apiBase,
+        model: apiModel,
+        key: apiKey.trim() || undefined,
+      });
+      setApiNote({
+        ok: true,
+        text: `Answered in ${test.latency_ms} ms as ${test.model}${
+          test.reply ? ` (“${test.reply}”)` : ""
+        }.`,
+      });
+    } catch (e) {
+      setApiNote({ ok: false, text: String(e) });
+    } finally {
+      setApiBusy(false);
+    }
+  };
+
+  const removeApiKey = async () => {
+    setApiBusy(true);
+    setApiNote(null);
+    try {
+      const { api: cfg } = await api.clearApiKey();
+      setEndpoint(cfg);
+      setApiNote({ ok: true, text: "Key removed from this machine." });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setApiBusy(false);
+    }
+  };
 
   /** Toggle or reschedule the desktop reminder; the sidecar owns the clock. */
   const saveNotify = async (opts: { enabled?: boolean; time?: string }) => {
@@ -350,6 +430,76 @@ export default function SettingsView() {
           Any GGUF file works — including one you already have in LM Studio or Ollama. The model is
           loaded on this device; switching models takes effect on the next question and does not
           require re-indexing (answers only; embeddings are separate).
+        </p>
+      </div>
+
+      <div className="card settings-section">
+        <h2>Bring your own model endpoint</h2>
+        <p>
+          Hadith Finder can write its answers with a model you already have access to — OpenAI,
+          OpenRouter, Groq, or a local server that speaks the same API. Searching, citations and
+          cross-references stay on this device; only the writing moves to your endpoint.
+        </p>
+        <div className="api-grid">
+          <label className="api-field">
+            <span>Endpoint</span>
+            <input
+              value={apiBase}
+              spellCheck={false}
+              placeholder="https://api.openai.com/v1"
+              onChange={(e) => setApiBase(e.target.value)}
+            />
+          </label>
+          <label className="api-field">
+            <span>Model</span>
+            <input
+              value={apiModel}
+              spellCheck={false}
+              placeholder="gpt-4o-mini"
+              onChange={(e) => setApiModel(e.target.value)}
+            />
+          </label>
+          <label className="api-field api-key">
+            <span>API key</span>
+            <input
+              type="password"
+              value={apiKey}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder={endpoint?.has_key ? "saved — paste a new key to replace" : "sk-…"}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="api-actions">
+          <label className="notify-toggle">
+            <input
+              type="checkbox"
+              checked={endpoint?.enabled ?? false}
+              disabled={apiBusy}
+              onChange={(e) => saveEndpoint(e.target.checked)}
+            />
+            <span>Answer with this endpoint</span>
+          </label>
+          <button className="btn" disabled={apiBusy} onClick={() => saveEndpoint(endpoint?.enabled ?? false)}>
+            {apiBusy ? "Working…" : "Save"}
+          </button>
+          <button className="btn" disabled={apiBusy} onClick={testEndpoint}>
+            Test key
+          </button>
+          {endpoint?.has_key && (
+            <button className="btn btn-quiet" disabled={apiBusy} onClick={removeApiKey}>
+              Remove key
+            </button>
+          )}
+        </div>
+        {apiNote && (
+          <p className={apiNote.ok ? "setting-ok" : "setting-error"}>{apiNote.text}</p>
+        )}
+        <p className="setting-note">
+          The key is encrypted with Windows DPAPI for your account and kept in a separate file beside
+          the library, so a copied or backed-up <code>library.haddb</code> never carries it. Keys are
+          sent only to the endpoint you type here.
         </p>
       </div>
 

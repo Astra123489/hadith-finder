@@ -16,9 +16,13 @@ production.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 LLM_PATH_ENV = "HADITH_LLM_GGUF"
@@ -257,6 +261,144 @@ class EchoProvider(LLMProvider):
         if on_token:
             on_token(text, ThoughtStream.ANSWER)
         return text
+
+
+class OpenAIProvider(LLMProvider):
+    """A user's own OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, …).
+
+    Retrieval, citations and cross-referencing stay local and identical: only
+    the writing of the answer moves to their model. The key comes from the
+    DPAPI-protected store, never from the library file or the UI's disk state.
+    """
+
+    name = "openai-compatible"
+    kind = "openai"
+
+    def __init__(self, base_url: str, model: str, api_key: str, *, timeout: float = 180.0):
+        base = (base_url or "").strip().rstrip("/")
+        if not base:
+            raise ValueError("an endpoint URL is required")
+        if not re.match(r"^https?://", base, re.I):
+            raise ValueError("the endpoint must start with http:// or https://")
+        self.base_url = base
+        self.model = (model or "").strip()
+        if not self.model:
+            raise ValueError("a model name is required")
+        self.api_key = api_key
+        self.timeout = timeout
+        self.model_path = ""
+
+    @property
+    def url(self) -> str:
+        return f"{self.base_url}/chat/completions"
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    @staticmethod
+    def _explain(error: urllib.error.HTTPError) -> str:
+        detail = ""
+        try:
+            body = error.read().decode("utf-8", "replace")
+            parsed = json.loads(body)
+            detail = (parsed.get("error") or {}).get("message") or body
+        except Exception:
+            detail = ""
+        if error.code in (401, 403):
+            return f"the endpoint rejected the API key ({error.code})"
+        if error.code == 404:
+            return (
+                "the endpoint has no /chat/completions here — check the base URL "
+                "(it usually ends in /v1)"
+            )
+        message = f"the endpoint returned {error.code}"
+        return f"{message}: {detail.strip()[:200]}" if detail else message
+
+    def generate(self, system: str, user: str, *, max_tokens: int = 512,
+                 temperature: float = 0.2, on_token=None) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        request = urllib.request.Request(
+            self.url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=self._headers(),
+            method="POST",
+        )
+        pieces: list[str] = []
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                for raw in response:
+                    line = raw.strip()
+                    if not line.startswith(b"data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == b"[DONE]":
+                        break
+                    try:
+                        parsed = json.loads(chunk)
+                    except ValueError:
+                        continue
+                    choices = parsed.get("choices") or []
+                    if not choices:
+                        continue
+                    piece = (choices[0].get("delta") or {}).get("content") or ""
+                    if piece:
+                        pieces.append(piece)
+                        if on_token:
+                            on_token(piece, ThoughtStream.ANSWER)
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(self._explain(error)) from None
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"could not reach the endpoint: {error.reason}") from None
+        return "".join(pieces).strip()
+
+
+def test_endpoint(base_url: str, model: str, api_key: str) -> dict:
+    """One tiny completion, so Settings can say whether the key works."""
+    provider = OpenAIProvider(base_url, model, api_key, timeout=45.0)
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with the single word: ready"}],
+        "max_tokens": 8,
+        "stream": False,
+    }
+    request = urllib.request.Request(
+        provider.url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={**provider._headers(), "Accept": "application/json"},
+        method="POST",
+    )
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=45.0) as response:
+            body = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(provider._explain(error)) from None
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"could not reach the endpoint: {error.reason}") from None
+    elapsed = int((time.monotonic() - started) * 1000)
+    reply = ""
+    try:
+        reply = ((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    except Exception:
+        reply = ""
+    return {
+        "ok": True,
+        "model": body.get("model") or model,
+        "latency_ms": elapsed,
+        "reply": " ".join(reply.split())[:80],
+    }
 
 
 class LlamaCppProvider(LLMProvider):
@@ -498,11 +640,15 @@ class LlamaCppProvider(LLMProvider):
 def get_llm(kind: str | None = None, *, model_path: str | None = None,
             stored: str | None = None, stored_ctx=None,
             device: str | None = None, kv: str | None = None,
-            stored_device: str | None = None, stored_kv: str | None = None) -> LLMProvider:
-    """kind: 'auto' (llama-cpp, else error), 'llama-cpp', 'echo' (tests only)."""
+            stored_device: str | None = None, stored_kv: str | None = None,
+            api_base_url: str | None = None, api_model: str | None = None,
+            api_key: str | None = None) -> LLMProvider:
+    """kind: 'auto' (llama-cpp, else error), 'llama-cpp', 'openai', 'echo'."""
     kind = (kind or os.environ.get("HADITH_LLM") or "auto").lower()
     if kind == "echo":
         return EchoProvider()
+    if kind in ("openai", "api"):
+        return OpenAIProvider(api_base_url or "", api_model or "", api_key or "")
     if kind in ("llama-cpp", "llama_cpp", "auto"):
         return LlamaCppProvider(
             model_path=model_path, stored=stored, stored_ctx=stored_ctx,

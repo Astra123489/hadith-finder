@@ -55,14 +55,42 @@ def _embedder():
     return _state["embedder"]
 
 
+def _api_info() -> dict:
+    """The user's own OpenAI-compatible endpoint, without ever the key."""
+    from . import secrets as secret_store
+
+    conn = _conn()
+    enabled = db.get_meta(conn, "api_mode") == "1"
+    base_url = db.get_meta(conn, "api_base_url") or ""
+    model = db.get_meta(conn, "api_model") or ""
+    has_key = secret_store.has(_state["library"], "openai")
+    return {
+        "enabled": enabled,
+        "base_url": base_url,
+        "model": model,
+        "has_key": has_key,
+        "ready": bool(enabled and base_url and model and has_key),
+    }
+
+
 def _llm_settings() -> dict:
     conn = _conn()
-    return {
+    settings = {
         "stored": db.get_meta(conn, "llm_path"),
         "stored_ctx": db.get_meta(conn, "llm_ctx"),
         "stored_device": db.get_meta(conn, "llm_device"),
         "stored_kv": db.get_meta(conn, "llm_kv"),
     }
+    if db.get_meta(conn, "api_mode") == "1":
+        from . import secrets as secret_store
+
+        settings.update({
+            "kind": "openai",
+            "api_base_url": db.get_meta(conn, "api_base_url") or "",
+            "api_model": db.get_meta(conn, "api_model") or "",
+            "api_key": secret_store.load(_state["library"], "openai") or "",
+        })
+    return settings
 
 
 def _llm():
@@ -149,6 +177,11 @@ def dispatch(method: str, params: dict):
         "update_bookmark": _update_bookmark,
         "daily_hadith": _daily_hadith,
         "daily_notify": _daily_notify,
+        "api_config": _api_config,
+        "set_api_config": _set_api_config,
+        "set_api_key": _set_api_key,
+        "clear_api_key": _clear_api_key,
+        "test_api": _test_api,
         "set_daily_notify": _set_daily_notify,
         "mark_daily_notify": _mark_daily_notify,
         "shutdown": _shutdown,
@@ -577,6 +610,7 @@ def _llm_info() -> dict:
         auto_load=db.get_meta(conn, "llm_auto_load") == "1",
     )
     llm = _state["llm"]
+    info["api"] = _api_info()
     info["runtime"] = {
         "loaded": llm is not None,
         "model": Path(getattr(llm, "model_path", "")).stem if llm is not None else "",
@@ -587,6 +621,68 @@ def _llm_info() -> dict:
         "flash_attn": getattr(llm, "flash_attn", False),
     }
     return info
+
+
+def _api_config(_params):
+    return {"api": _api_info(), "llm_active": _llm_info()}
+
+
+def _set_api_config(params):
+    """Switch answers to a user endpoint and remember where it lives."""
+    conn = _conn()
+    if "enabled" in params:
+        db.set_meta(conn, "api_mode", "1" if params.get("enabled") else "0")
+    if "base_url" in params:
+        url = str(params.get("base_url") or "").strip().rstrip("/")
+        if url and not url.lower().startswith(("http://", "https://")):
+            raise ValueError("the endpoint must start with http:// or https://")
+        db.set_meta(conn, "api_base_url", url)
+    if "model" in params:
+        db.set_meta(conn, "api_model", str(params.get("model") or "").strip())
+    conn.commit()
+    _state["llm"] = None  # rebuild the provider on the next question
+    _state["llm_gen"] += 1
+    return {"api": _api_info(), "llm_active": _llm_info()}
+
+
+def _set_api_key(params):
+    """Store the key with DPAPI; it is never returned to the UI."""
+    from . import secrets as secret_store
+
+    key = str(params.get("key") or "").strip()
+    if not key:
+        raise ValueError("an API key is required")
+    secret_store.save(_state["library"], "openai", key)
+    _state["llm"] = None
+    _state["llm_gen"] += 1
+    return {"api": _api_info()}
+
+
+def _clear_api_key(_params):
+    from . import secrets as secret_store
+
+    secret_store.clear(_state["library"], "openai")
+    _state["llm"] = None
+    _state["llm_gen"] += 1
+    return {"api": _api_info()}
+
+
+def _test_api(params):
+    """One tiny request, so Settings can say whether the key works."""
+    from . import secrets as secret_store
+    from .llm import test_endpoint
+
+    conn = _conn()
+    base = str(params.get("base_url") or db.get_meta(conn, "api_base_url") or "").strip()
+    model = str(params.get("model") or db.get_meta(conn, "api_model") or "").strip()
+    key = str(params.get("key") or "").strip()
+    if not key:
+        key = secret_store.load(_state["library"], "openai") or ""
+    if not base:
+        raise ValueError("an endpoint URL is required")
+    if not model:
+        raise ValueError("a model name is required")
+    return {"test": test_endpoint(base, model, key)}
 
 
 def _models_status(_params):
@@ -636,6 +732,22 @@ def _list_llms(_params):
         add(stored)
     if not any(e["selected"] for e in entries):
         add(active)
+    api = _api_info()
+    if api["enabled"]:
+        # The picker offers whichever writer is actually answering; switching
+        # back to a local file is one click away, in the same list.
+        for entry in entries:
+            entry["selected"] = False
+        entries.insert(0, {
+            "path": "api:openai",
+            "name": f"Your endpoint · {api['model'] or 'unnamed model'}",
+            "size": 0,
+            "installed": bool(api["model"]),
+            "default": False,
+            "selected": True,
+            "kind": "api",
+        })
+        return {"llms": entries, "active": "api:openai"}
     return {"llms": entries, "active": str(active)}
 
 
@@ -648,6 +760,16 @@ def _set_llm(params):
 
     if "path" in params:
         path = params.get("path")
+        if str(path or "").strip() == "api:openai":
+            # Choosing the endpoint in the model picker switches to it; the
+            # local model choice is remembered and comes back when reselected.
+            db.set_meta(conn, "api_mode", "1")
+            conn.commit()
+            _state["llm"] = None
+            _state["llm_gen"] += 1
+            return {"llm_active": _llm_info()}
+        if db.get_meta(conn, "api_mode") == "1" and path is not None:
+            db.set_meta(conn, "api_mode", "0")
         if path is None or str(path).strip() == "":
             conn.execute("DELETE FROM meta WHERE key = 'llm_path'")
         else:

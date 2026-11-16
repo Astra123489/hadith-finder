@@ -1601,3 +1601,40 @@ html, body, #root {
 
 .notify-time input[type="time"]:disabled { opacity: 0.5; cursor: default; }
 .setting-error { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--red); }
+
+/* ---------- bring your own model endpoint ---------- */
+
+.api-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 14px 0 4px;
+}
+
+.api-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.api-field.api-key { grid-column: 1 / -1; }
+.api-field span { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+
+.api-field input {
+  background: rgba(231, 220, 195, 0.04);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  width: 100%;
+}
+
+.api-field input::placeholder { color: var(--text-faint); }
+.api-field input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+.api-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.setting-ok { margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--green); }
