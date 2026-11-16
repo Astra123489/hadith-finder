@@ -1,0 +1,32 @@
+# Exact dependencies for the shipped Windows x64 sidecar (Python 3.13).
+# Install with: python -m pip install -r requirements-release.txt
+#
+# requirements.txt stays the small dev/test set; this file is what the release
+# workflow (and any packaged build) installs. Bump these together with a
+# release, never loosely: the installer bundles whatever ends up here.
+
+# llama.cpp comes from a prebuilt Vulkan wheel, pinned by URL. The Vulkan index
+# (https://abetlen.github.io/llama-cpp-python/whl/vulkan) lags the project's
+# GitHub release tags — 0.3.36 is published as a release but not yet indexed —
+# and a CPU wheel installs silently yet ships without GPU support.
+llama-cpp-python @ https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-win_amd64.whl
+
+# Embeddings and reranking run through the DirectML provider of onnxruntime;
+# the plain `onnxruntime` package would drop GPU acceleration. pymupdf and
+# RapidOCR both depend on plain onnxruntime, so the release workflow uninstalls
+# it and reinstalls this DirectML build last (see .github/workflows/release.yml).
+onnxruntime-directml==1.24.4
+tokenizers==0.23.3
+
+# PDF text layer, OCR fallback, and the geometry OCR needs.
+pymupdf==2.1
+pymupdf4llm==2.1
+pymupdf-layout==2.1
+numpy==2.5.4
+rapidocr-onnxruntime==1.2.3
+opencv-python==5.0.0.93
+shapely==2.2.0
+pyclipper==1.4.0
+
+# The packager itself: a newer PyInstaller can change what gets collected.
+pyinstaller==6.22.3

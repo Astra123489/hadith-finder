@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The signing key must never be in the tree; catch it even if the local
+      # pre-commit hook was never enabled. The prefix is split so this file
+      # cannot match itself.
+      - name: Refuse committed signing keys
+        shell: pwsh
+        run: |
+          $p1 = 'dW50cnVzdGVkIGNvbW1lbnQ6'
+          $p2 = 'IHJzaWdu'
+          $byContent = git grep -I -l -e "$p1$p2"
+          $byName = git ls-files '*.key' '*.pem' '*.password'
+          if ($byContent -or $byName) {
+            throw "A signing key is committed: $byContent $byName"
+          }
+
+      # The key is passphrase-protected, so a lone TAURI_SIGNING_PRIVATE_KEY is
+      # not enough; fail with a readable message instead of a signing error.
+      - name: Require the signing secrets
+        shell: pwsh
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_KEY)) {
+            throw 'Missing repository secret TAURI_SIGNING_PRIVATE_KEY'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PASSWORD)) {
+            throw 'Missing repository secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD — the signing key is passphrase-protected'
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: sidecar/requirements.txt
+
+      # The sidecar is a PyInstaller build of the Python backend; it must exist
+      # before tauri build so the external binary is bundled. Everything is
+      # pinned in requirements-release.txt — notably the Vulkan llama.cpp wheel.
+      - name: Install sidecar dependencies
+        shell: pwsh
+        working-directory: sidecar
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-release.txt
+          # pymupdf and RapidOCR pull the plain onnxruntime wheel, which would
+          # shadow the DirectML build. Remove it and install DirectML last.
+          python -m pip uninstall -y onnxruntime
+          python -m pip install --no-deps --force-reinstall onnxruntime-directml==1.24.4
+
+      # A CPU wheel or a plain onnxruntime would still build an installer, just
+      # one without GPU inference, so fail here instead of shipping it.
+      - name: Check the inference wheels
+        shell: pwsh
+        run: |
+          python -c "import llama_cpp, os, sys; lib = os.path.join(os.path.dirname(llama_cpp.__file__), 'lib'); ok = os.path.exists(os.path.join(lib, 'ggml-vulkan.dll')); print('llama.cpp libs:', sorted(os.listdir(lib))); sys.exit(0 if ok else 1)"
+          if ($LASTEXITCODE -ne 0) { throw 'The installed llama-cpp-python wheel has no Vulkan backend' }
+          python -c "import onnxruntime as ort, sys; print('onnxruntime', ort.__version__, ort.get_available_providers()); sys.exit(0 if 'DmlExecutionProvider' in ort.get_available_providers() else 1)"
+          if ($LASTEXITCODE -ne 0) { throw 'onnxruntime is not the DirectML build' }
+          python -c "import PyInstaller; print('pyinstaller', PyInstaller.__version__)"
+
+      - name: Build the sidecar
+        shell: pwsh
+        working-directory: sidecar
+        run: |
+          pyinstaller --noconfirm hadith-sidecar.spec
+          if (!(Test-Path dist\hadith-sidecar.exe)) { throw 'PyInstaller produced no sidecar executable' }
+          New-Item -ItemType Directory -Force -Path ..\app\src-tauri\binaries | Out-Null
+          Copy-Item dist\hadith-sidecar.exe ..\app\src-tauri\binaries\hadith-sidecar-x86_64-pc-windows-msvc.exe
+
+      - name: Install the frontend
+        working-directory: app
+        run: npm ci
+
+      - name: Build and publish the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: "Hadith Finder ${{ github.ref_name }}"
+          releaseBody: "Download the installer below. Installed copies update themselves from this release."
+          releaseDraft: true
+          prerelease: false

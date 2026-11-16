@@ -9,6 +9,7 @@ import LibraryView from "./views/LibraryView";
 import SettingsView from "./views/SettingsView";
 import PdfViewer from "./views/PdfViewer";
 import LaunchWarning from "./components/LaunchWarning";
+import { startUpdateCheck, useAvailableUpdate } from "./update";
 
 type View = "ask" | "daily" | "bookmarks" | "library" | "settings";
 
@@ -82,6 +83,12 @@ export default function App() {
   const [viewer, setViewer] = useState<ViewerState | null>(null);
   // Every launch starts here: there is no "don't show again" to opt out of.
   const [warningOpen, setWarningOpen] = useState(true);
+  const availableUpdate = useAvailableUpdate();
+
+  // A delayed check after launch; it never holds up startup.
+  useEffect(() => {
+    startUpdateCheck();
+  }, []);
 
   const refreshBooks = useCallback(async () => {
     try {
@@ -208,6 +215,17 @@ export default function App() {
         {/* The Ask view portals its conversation list in here; the rail has
             room the reading column needs more. */}
         {view === "ask" && <div className="chat-slot" id="chat-slot" />}
+
+        {availableUpdate && (
+          <button
+            className="update-nudge"
+            onClick={() => setView("settings")}
+            title="Open Settings to install it"
+          >
+            <span className="update-dot" aria-hidden="true" />
+            <span>Update {availableUpdate.version} available</span>
+          </button>
+        )}
 
       </aside>
 

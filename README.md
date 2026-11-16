@@ -157,11 +157,72 @@ NOTICE.md       Third-party licenses and attribution
 
 ```bash
 cd app
-npm run tauri build   # produces installer + MSI in src-tauri/target/release/bundle/
+# the build signs its updater bundle with the same key the release workflow uses;
+# key and passphrase both live outside the repository, in ~/.tauri
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/hadith-finder.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "$HOME/.tauri/hadith-finder.key.password")"
+# PowerShell:
+#   $env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\hadith-finder.key"
+#   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Get-Content "$env:USERPROFILE\.tauri\hadith-finder.key.password"
+npm run tauri build   # installer + .sig + latest.json in src-tauri/target/release/bundle/nsis/
 ```
 
 The Python sidecar is compiled to a single `hadith-sidecar.exe` with PyInstaller and bundled
-as a Tauri external binary, so users never need Python installed.
+as a Tauri external binary, so users never need Python installed. Place it at
+`app/src-tauri/binaries/hadith-sidecar-x86_64-pc-windows-msvc.exe` before building.
+
+### What a release build assumes
+
+- **Windows x64 and Python 3.13**, which is what the workflow's runner and
+  `actions/setup-python` provide. `onnxruntime-directml` is Windows-only.
+- **`sidecar/requirements-release.txt` is the build's dependency list**, pinned exactly.
+  `requirements.txt` stays the smaller dev/test set and is not used for packaging.
+- **llama.cpp is the prebuilt Vulkan wheel**, pinned by URL to the
+  `v0.3.36-vulkan` release (`llama_cpp_python-0.3.36-py3-none-win_amd64.whl`) rather than the
+  Vulkan index, which lags behind the project's GitHub releases. A CPU wheel would install
+  cleanly and quietly ship without GPU support.
+- **Inference runs on `onnxruntime-directml`**, not plain `onnxruntime`, so embeddings and
+  reranking use the GPU when one is present. `pymupdf` and RapidOCR both pull the plain
+  `onnxruntime` wheel, so the workflow uninstalls it and reinstalls the DirectML build last.
+- **PyInstaller is pinned** (`6.22.3`) alongside the runtime libraries, since a newer packager
+  can change which modules get collected.
+- **The workflow checks before it builds**: `ggml-vulkan.dll` must be in the installed
+  llama.cpp package, `DmlExecutionProvider` must be among onnxruntime's providers, and
+  PyInstaller must actually produce `dist/hadith-sidecar.exe`. Any of those failing stops the
+  job rather than producing an installer that quietly lost GPU inference.
+
+## Releasing an update
+
+Installed copies check GitHub Releases for their updates (`plugins.updater` in
+`tauri.conf.json` points at the latest release's `latest.json`), so publishing a release is
+all it takes to reach users; Settings → Version & updates can also check on demand.
+
+Pushing a tag runs `.github/workflows/release.yml`, which builds the sidecar, builds and signs
+the NSIS installer, and attaches it plus `latest.json` to a **draft** release:
+
+```bash
+# 1. bump the version in app/package.json, app/src-tauri/Cargo.toml,
+#    app/src-tauri/tauri.conf.json, sidecar/pyproject.toml
+git commit -am "Release v0.3.1"
+git tag v0.3.1
+git push origin main --tags
+# 2. review the draft release on GitHub and publish it
+```
+
+Updates are signed with a minisign key. The public half lives in `tauri.conf.json`; the private
+half lives **outside this repository**, at `~/.tauri/hadith-finder.key`
+(`%USERPROFILE%\.tauri\hadith-finder.key` on Windows), and belongs in the repository secrets
+as `TAURI_SIGNING_PRIVATE_KEY` — its contents, not a path — and its passphrase as
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The passphrase was generated with the key and is kept at
+`~/.tauri/hadith-finder.key.password`. **Both secrets are required**: the key file is encrypted,
+so on its own it cannot sign a release, and the workflow stops before building if either secret
+is missing.
+
+Never copy it into the project. `.gitignore` covers `*.key` and `*.pem`, the tracked pre-commit
+hook refuses key files and key-like content (`git config core.hooksPath .githooks`, once per
+clone), and the release workflow fails if a key ever reaches the tree. Keep a backup somewhere
+safe: without that key you cannot ship further updates, and a lost key means users must reinstall
+once. Rotating the key requires publishing a release signed with the old one.
 
 ## Bring your own books — always
 

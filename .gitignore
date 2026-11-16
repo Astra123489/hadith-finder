@@ -34,3 +34,9 @@ scripts/1.txt
 
 # local benchmark scratch
 .embbench/
+
+# signing keys live outside the repository (~/.tauri); never commit one
+*.key
+*.pem
+*.password
+tauri-signing.key*

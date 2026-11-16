@@ -111,10 +111,12 @@ async fn list_chats(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-async fn new_chat(app: AppHandle) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "new_chat", json!({}), 30))
-        .await
-        .map_err(|e| e.to_string())?
+async fn new_chat(app: AppHandle, folder_id: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "new_chat", json!({ "folder_id": folder_id }), 30)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -659,6 +661,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let lib_dir = app
                 .path()

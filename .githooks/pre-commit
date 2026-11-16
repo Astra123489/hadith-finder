@@ -1,0 +1,26 @@
+#!/bin/sh
+# The updater's private key lives outside this repository (~/.tauri). This hook
+# stops a stray copy from ever being committed: enable it once per clone with
+#
+#   git config core.hooksPath .githooks
+#
+# The base64 prefix is split so this script never matches itself.
+p1=dW50cnVzdGVkIGNvbW1lbnQ6
+p2=IHJzaWdu
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+named=$(printf '%s\n' "$staged" | grep -Ei '(^|/)(tauri-signing[^/]*|.*\.(key|pem|password))$')
+if [ -n "$named" ]; then
+  echo "refusing to commit: a key file is staged" >&2
+  echo "$named" >&2
+  exit 1
+fi
+
+contents=$(git grep --cached -I -l -e "$p1$p2" -- . 2>/dev/null)
+if [ -n "$contents" ]; then
+  echo "refusing to commit: staged content looks like a Tauri signing key" >&2
+  echo "$contents" >&2
+  exit 1
+fi
+
+exit 0

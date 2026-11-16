@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   api,
   formatMB,
+  isTauri,
   type ApiConfig,
   type DailyNotify,
   type DownloadProgress,
   type ModelsStatus,
 } from "../api";
 import type { ActiveModel, KvCache, LlmDevice } from "../api";
+import { useAvailableUpdate } from "../update";
 
 type ModelKey = "llm" | "embedder" | "reranker";
 
@@ -39,6 +43,69 @@ export default function SettingsView() {
   const [progress, setProgress] = useState<Record<ModelKey, DownloadProgress | null>>({
     llm: null, embedder: null, reranker: null,
   });
+  const [update, setUpdate] = useState<{
+    stage: "idle" | "checking" | "none" | "available" | "downloading" | "error";
+    version?: string;
+    notes?: string;
+    received?: number;
+    total?: number;
+  }>({ stage: "idle" });
+  const pendingUpdate = useRef<Update | null>(null);
+
+  /** Ask GitHub Releases for a newer signed build. */
+  const checkUpdates = async () => {
+    if (!isTauri()) {
+      setUpdate({ stage: "error", notes: "Updates apply to the installed desktop app." });
+      return;
+    }
+    setUpdate({ stage: "checking" });
+    try {
+      const found = await check();
+      if (!found) {
+        setUpdate({ stage: "none" });
+        return;
+      }
+      pendingUpdate.current = found;
+      setUpdate({ stage: "available", version: found.version, notes: found.body ?? "" });
+    } catch (e) {
+      setUpdate({ stage: "error", notes: String(e) });
+    }
+  };
+
+  /** Download and apply, then restart into the new version. */
+  const installUpdate = async () => {
+    const found = pendingUpdate.current;
+    if (!found) return;
+    setUpdate((u) => ({ ...u, stage: "downloading", received: 0, total: 0 }));
+    try {
+      await found.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          setUpdate((u) => ({ ...u, total: event.data.contentLength ?? 0 }));
+        } else if (event.event === "Progress") {
+          setUpdate((u) => ({ ...u, received: (u.received ?? 0) + event.data.chunkLength }));
+        }
+      });
+      await relaunch();
+    } catch (e) {
+      setUpdate({ stage: "error", notes: String(e) });
+    }
+  };
+
+  const updatePct = update.total
+    ? Math.min(100, Math.round(((update.received ?? 0) / update.total) * 100))
+    : 0;
+
+  // The launch check may already know about a release; fetch its details here
+  // rather than making anyone press the button a second time.
+  const knownUpdate = useAvailableUpdate();
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (!knownUpdate || autoChecked.current) return;
+    autoChecked.current = true;
+    checkUpdates();
+    // checkUpdates is stable enough for a one-shot effect; the ref guards it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knownUpdate]);
 
   const refresh = () => api.modelsStatus().then(setModels).catch((e) => setError(String(e)));
 
@@ -646,6 +713,47 @@ export default function SettingsView() {
       </div>
 
       <div className="card settings-section">
+        <h2>Version &amp; updates</h2>
+        <p>
+          Hadith Finder {info?.version ?? "…"}. Updates come from this project's GitHub Releases and are
+          signed, so a tampered download is refused before it reaches the app.
+        </p>
+        <div className="update-row">
+          <button
+            className="btn"
+            onClick={checkUpdates}
+            disabled={update.stage === "checking" || update.stage === "downloading"}
+          >
+            {update.stage === "checking" ? "Checking…" : "Check for updates"}
+          </button>
+          {update.stage === "none" && <span className="setting-ok">You're on the latest version.</span>}
+          {update.stage === "available" && (
+            <span className="ask-hint">Version {update.version} is available.</span>
+          )}
+        </div>
+        {update.stage === "available" && (
+          <>
+            {update.notes && <p className="setting-note update-notes">{update.notes}</p>}
+            <div className="update-row">
+              <button className="btn btn-primary" onClick={installUpdate}>
+                Download &amp; install
+              </button>
+              <span className="ask-hint">The app restarts when the update is applied.</span>
+            </div>
+          </>
+        )}
+        {update.stage === "downloading" && (
+          <div className="progress-wrap model-progress">
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${updatePct}%` }} />
+            </div>
+            <span className="progress-label">Downloading the update… {updatePct}%</span>
+          </div>
+        )}
+        {update.stage === "error" && <p className="setting-error">{update.notes}</p>}
+      </div>
+
+      <div className="card settings-section">
         <h2>Your library</h2>
         <p>Stored locally at:</p>
         <p><code>{info?.library ?? "…"}</code></p>
@@ -692,7 +800,7 @@ export default function SettingsView() {
           is by TrevorJS; embeddings and reranking by BAAI) under their respective free licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
           publishers — use copies you're entitled to keep.
         </p>
-        <p className="setting-note">Version 0.2.0 · Not affiliated with any religious authority.</p>
+        <p className="setting-note">Version 0.3.0 · Not affiliated with any religious authority.</p>
       </div>
     </div>
   );
