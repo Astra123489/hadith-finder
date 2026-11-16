@@ -28,6 +28,57 @@ function ChatIcon() {
   );
 }
 
+const ICON = { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", "aria-hidden": true } as const;
+
+function IconPencil() {
+  return (
+    <svg {...ICON}>
+      <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M13.5 6.5l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconRetry() {
+  return (
+    <svg {...ICON}>
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M20 4.5V9h-4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconUndo() {
+  return (
+    <svg {...ICON}>
+      <path d="M4 11h9a5 5 0 0 1 0 10h-2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.5 7.5 4 11l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconCopy() {
+  return (
+    <svg {...ICON}>
+      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M15 6.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg {...ICON}>
+      <path d="M5 13l4.5 4.5L19 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function formatTokens(n: number): string {
   if (n >= 10000) return `${Math.round(n / 1000)}k`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -69,6 +120,7 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
+  const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -389,6 +441,28 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     await rewindTo(turn.id);
   };
 
+  /** Copy a question, with a clipboard fallback for non-secure contexts. */
+  const copyQuestion = async (turn: ThreadTurn) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(turn.question);
+      } else {
+        const scratch = document.createElement("textarea");
+        scratch.value = turn.question;
+        scratch.style.position = "fixed";
+        scratch.style.opacity = "0";
+        document.body.appendChild(scratch);
+        scratch.select();
+        document.execCommand("copy");
+        scratch.remove();
+      }
+      setCopiedTurn(turn.id);
+      window.setTimeout(() => setCopiedTurn((cur) => (cur === turn.id ? null : cur)), 1400);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const startRename = (id: string) => {
     const chat = chats.find((c) => c.id === id);
     renameCancelled.current = false;
@@ -509,25 +583,36 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
                 <div className="turn-q" dir="auto">{turn.question}</div>
                 <div className="turn-actions">
                   <button
+                    onClick={() => copyQuestion(turn)}
+                    className={copiedTurn === turn.id ? "copied" : ""}
+                    title={copiedTurn === turn.id ? "Copied" : "Copy this question"}
+                    aria-label="Copy this question"
+                  >
+                    {copiedTurn === turn.id ? <IconCheck /> : <IconCopy />}
+                  </button>
+                  <button
                     onClick={() => editTurn(turn)}
                     disabled={busy}
-                    title="Put this question back in the box and drop the answer"
+                    title="Edit - put this question back in the box"
+                    aria-label="Edit this question"
                   >
-                    Edit
+                    <IconPencil />
                   </button>
                   <button
                     onClick={() => retryTurn(turn)}
                     disabled={busy}
-                    title="Drop this answer and ask the question again"
+                    title="Retry - ask this question again"
+                    aria-label="Retry this question"
                   >
-                    Retry
+                    <IconRetry />
                   </button>
                   <button
                     onClick={() => dropTurn(turn)}
                     disabled={busy}
-                    title="Remove this question and everything after it"
+                    title="Roll back - remove this question and everything after it"
+                    aria-label="Roll back to before this question"
                   >
-                    Roll back
+                    <IconUndo />
                   </button>
                 </div>
               </div>

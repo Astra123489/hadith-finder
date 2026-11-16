@@ -1506,22 +1506,27 @@ html, body, #root {
 
 .turn-actions {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 .turn:hover .turn-actions,
 .turn:focus-within .turn-actions { opacity: 1; }
 .turn-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
   background: none;
   border: none;
-  padding: 2px 7px;
   border-radius: var(--r-sm);
-  font: inherit;
-  font-size: 11.5px;
   color: var(--text-faint);
   cursor: pointer;
 }
+.turn-actions button svg { display: block; }
+.turn-actions button.copied { color: var(--green); }
 .turn-actions button:hover:not(:disabled) {
   color: var(--text);
   background: rgba(231, 220, 195, 0.07);
