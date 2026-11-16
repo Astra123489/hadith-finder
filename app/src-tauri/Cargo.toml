@@ -1,6 +1,6 @@
 [package]
 name = "hadith-finder"
-version = "0.3.0"
+version = "0.4.0"
 description = "Hadith Finder — local AI research assistant for hadith collections"
 authors = ["Hadith Finder contributors"]
 edition = "2021"
