@@ -126,12 +126,14 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
     <div className="viewer-overlay" role="dialog" aria-modal="true" aria-label={title}>
       <div className="viewer-toolbar">
         <button
-          className="icon-btn viewer-close"
+          className="viewer-close"
           onClick={onClose}
           title="Close (Esc)"
           aria-label="Close the book"
         >
-          ✕
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          </svg>
         </button>
 
         <div className="viewer-heading">
@@ -153,9 +155,9 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
 
         <div className="spacer" />
 
-        <div className="viewer-group">
+        <div className="viewer-seg" role="group" aria-label="Page navigation">
           <button
-            className="icon-btn"
+            className="seg-btn"
             onClick={() => go(-1)}
             title="Previous page (←)"
             aria-label="Previous page"
@@ -163,21 +165,23 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
           >
             ‹
           </button>
-          <input
-            className="page-input"
-            type="number"
-            min={1}
-            max={numPages}
-            value={page + 1}
-            aria-label="Page number"
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              if (!Number.isNaN(n)) setPage(Math.min(Math.max(0, n - 1), numPages - 1));
-            }}
-          />
-          <span className="viewer-total">of {numPages || "…"}</span>
+          <div className="seg-pager">
+            <input
+              className="viewer-page"
+              type="number"
+              min={1}
+              max={numPages}
+              value={page + 1}
+              aria-label="Page number"
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                if (!Number.isNaN(n)) setPage(Math.min(Math.max(0, n - 1), numPages - 1));
+              }}
+            />
+            <span className="viewer-total">/ {numPages || "…"}</span>
+          </div>
           <button
-            className="icon-btn"
+            className="seg-btn"
             onClick={() => go(1)}
             title="Next page (→)"
             aria-label="Next page"
@@ -187,12 +191,14 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
           </button>
         </div>
 
-        <div className="viewer-group">
-          <button className="icon-btn" onClick={() => zoom(-0.2)} title="Zoom out" aria-label="Zoom out">
+        <span className="viewer-sep" aria-hidden="true" />
+
+        <div className="viewer-seg" role="group" aria-label="Zoom">
+          <button className="seg-btn" onClick={() => zoom(-0.2)} title="Zoom out" aria-label="Zoom out">
             −
           </button>
-          <span className="viewer-zoom">{Math.round(scale * 100)}%</span>
-          <button className="icon-btn" onClick={() => zoom(0.2)} title="Zoom in" aria-label="Zoom in">
+          <span className="seg-zoom">{Math.round(scale * 100)}%</span>
+          <button className="seg-btn" onClick={() => zoom(0.2)} title="Zoom in" aria-label="Zoom in">
             +
           </button>
         </div>

@@ -8,10 +8,12 @@ import { useEffect, useRef } from "react";
  * sees is how to check it.
  */
 export default function LaunchWarning({ onClose }: { onClose: () => void }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Focus the dialog itself rather than the button: the button would otherwise
+  // open wearing a focus ring, which reads as a heavy border on every launch.
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    buttonRef.current?.focus();
+    cardRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
@@ -27,7 +29,12 @@ export default function LaunchWarning({ onClose }: { onClose: () => void }) {
       aria-labelledby="launch-warning-title"
       onClick={onClose}
     >
-      <div className="warning-card" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="warning-card"
+        ref={cardRef}
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="warning-head">
           <div className="warning-mark" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -70,7 +77,7 @@ export default function LaunchWarning({ onClose }: { onClose: () => void }) {
             For anything touching belief or practice, ask a qualified scholar.
           </li>
         </ul>
-        <button ref={buttonRef} className="btn btn-primary" onClick={onClose}>
+        <button className="btn btn-primary" onClick={onClose}>
           I’ll check the sources
         </button>
       </div>

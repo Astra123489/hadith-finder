@@ -364,7 +364,7 @@ interface DemoChat {
   folderId?: string | null;
 }
 
-function newDemoChat(): DemoChat {
+function newDemoChat(folderId: string | null = null): DemoChat {
   const now = new Date().toISOString();
   return {
     id: `c${Math.random().toString(36).slice(2, 10)}`,
@@ -375,6 +375,7 @@ function newDemoChat(): DemoChat {
     nextId: 1,
     createdAt: now,
     updatedAt: now,
+    folderId,
   };
 }
 
@@ -386,8 +387,8 @@ function activeDemoChat(): DemoChat {
   return demoChats.find((c) => c.id === demoActiveId) ?? demoChats[0];
 }
 
-function startDemoChat(): DemoChat {
-  const chat = newDemoChat();
+function startDemoChat(folderId: string | null = null): DemoChat {
+  const chat = newDemoChat(folderId);
   demoChats = [chat, ...demoChats];
   demoActiveId = chat.id;
   return chat;
@@ -457,7 +458,7 @@ const demoApi = {
   ping: () =>
     Promise.resolve({
       pong: true,
-      version: "0.2.0 (browser preview)",
+      version: "0.3.0 (browser preview)",
       library: "demo library (in-browser preview)",
       ocr: { mode: "auto", available: false },
     }),
@@ -512,10 +513,19 @@ const demoApi = {
     demoChats = demoChats.map((c) => (c.id === id ? { ...c, folderId } : c));
     return Promise.resolve({ folders: [...demoFolders], chats: demoChatList() });
   },
-  newChat: () => {
+  newChat: (folderId?: string | null) => {
+    const target = folderId ?? null;
     const current = activeDemoChat();
-    const chat = current.turns.length ? startDemoChat() : current;
-    return Promise.resolve({ thread: demoThreadState(chat), chats: demoChatList() });
+    // Reuse only a blank chat that is already in the requested place.
+    const chat =
+      !current.turns.length && (current.folderId ?? null) === target
+        ? current
+        : startDemoChat(target);
+    return Promise.resolve({
+      thread: demoThreadState(chat),
+      chats: demoChatList(),
+      folders: [...demoFolders],
+    });
   },
   openChat: (id: string) => {
     const found = demoChats.find((c) => c.id === id);
@@ -769,7 +779,10 @@ const realApi = {
   moveChat: (id: string, folderId: string | null) =>
     invoke<{ folders: ChatFolder[]; chats: ChatSummary[] }>("move_chat", { id, folderId }),
 
-  newChat: () => invoke<{ thread: ThreadState; chats: ChatSummary[] }>("new_chat"),
+  newChat: (folderId: string | null = null) =>
+    invoke<{ thread: ThreadState; chats: ChatSummary[]; folders: ChatFolder[] }>("new_chat", {
+      folderId,
+    }),
 
   openChat: (id: string) =>
     invoke<{ thread: ThreadState; chats: ChatSummary[] }>("open_chat", { id }),

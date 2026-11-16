@@ -106,7 +106,15 @@ function ChatRow({
   );
 }
 
-function FolderIcon({ size = 13 }: { size?: number }) {
+function PlusIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FolderIcon({ size = 13, open = false }: { size?: number; open?: boolean }) {
   return (
     <svg
       className="folder-icon"
@@ -116,23 +124,35 @@ function FolderIcon({ size = 13 }: { size?: number }) {
       fill="none"
       aria-hidden="true"
     >
-      <path
-        d="M3.6 6.9a1.8 1.8 0 0 1 1.8-1.8h3.4l1.9 2.3h7.9a1.8 1.8 0 0 1 1.8 1.8v7.9a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V6.9Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
+      {open ? (
+        <path
+          d="M6 14.5l1.4-2.8a2 2 0 0 1 1.8-1.1H20a2 2 0 0 1 1.94 2.5l-1.45 5.7a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5.4a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.66.9l.8 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v1.6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ) : (
+        <path
+          d="M3.6 6.9a1.8 1.8 0 0 1 1.8-1.8h3.4l1.9 2.3h7.9a1.8 1.8 0 0 1 1.8 1.8v7.9a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V6.9Z"
+          transform="translate(12 12) scale(1.19) translate(-12 -12)"
+          stroke="currentColor"
+          strokeWidth="1.35"
+          strokeLinejoin="round"
+        />
+      )}
     </svg>
   );
 }
 
-function ChatIcon() {
+function ChatIcon({ size = 18 }: { size?: number }) {
   return (
-    <svg className="chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg className="chat-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M4.8 4.5h14.4a1.8 1.8 0 0 1 1.8 1.8v9a1.8 1.8 0 0 1-1.8 1.8H10l-4.4 3.2v-3.2H4.8A1.8 1.8 0 0 1 3 15.3v-9a1.8 1.8 0 0 1 1.8-1.8Z"
+        d="M7.9 20A9 9 0 1 0 4 16.1L2.6 21.4 7.9 20Z"
         stroke="currentColor"
         strokeWidth="1.6"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -502,8 +522,11 @@ export default function AskView({
     }
   };
 
-  /** Start a new conversation; an untouched one is reused by the sidecar. */
-  const startNewChat = async () => {
+  /**
+   * Start a new conversation in the given folder, or outside every folder.
+   * A folder's own "+" creates inside it; the header's "+" never does.
+   */
+  const startNewChat = async (folderId: string | null = null) => {
     if (busy) return;
     setError(null);
     setNotice(null);
@@ -513,8 +536,9 @@ export default function AskView({
     setThinking("");
     setQuery("");
     setShowCtx(false);
+    if (folderId) setClosedFolders((cur) => cur.filter((f) => f !== folderId));
     try {
-      const res = await api.newChat();
+      const res = await api.newChat(folderId);
       applyThread(res.thread);
       setChats(res.chats);
     } catch (e) {
@@ -1193,16 +1217,16 @@ export default function AskView({
                   title="New folder"
                   aria-label="New folder"
                 >
-                  <FolderIcon size={13} />
+                  <FolderIcon size={18} />
                 </button>
                 <button
                   className="chat-new"
-                  onClick={startNewChat}
+                  onClick={() => void startNewChat(null)}
                   disabled={busy}
-                  title="New conversation"
-                  aria-label="New conversation"
+                  title="New conversation (outside folders)"
+                  aria-label="New conversation outside folders"
                 >
-                  +
+                  <PlusIcon size={18} />
                 </button>
               </div>
             </div>
@@ -1223,23 +1247,28 @@ export default function AskView({
                       }}
                     >
                       {folderRenaming === folder.id ? (
-                        <input
-                          ref={folderInputRef}
-                          className="folder-rename"
-                          value={folderName}
-                          onChange={(e) => setFolderName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void commitFolderRename();
-                            } else if (e.key === "Escape") {
-                              e.preventDefault();
-                              setFolderRenaming(null);
-                            }
-                          }}
-                          onBlur={() => void commitFolderRename()}
-                          aria-label="Folder name"
-                        />
+                        <>
+                          <span className="folder-rename-icon" aria-hidden="true">
+                            <FolderIcon size={18} />
+                          </span>
+                          <input
+                            ref={folderInputRef}
+                            className="folder-rename"
+                            value={folderName}
+                            onChange={(e) => setFolderName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void commitFolderRename();
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                setFolderRenaming(null);
+                              }
+                            }}
+                            onBlur={() => void commitFolderRename()}
+                            aria-label="Folder name"
+                          />
+                        </>
                       ) : (
                         <button
                           className="folder-toggle"
@@ -1247,39 +1276,33 @@ export default function AskView({
                           aria-expanded={!closed}
                           title={closed ? "Show conversations" : "Hide conversations"}
                         >
-                          <svg
-                            className={`folder-chevron ${closed ? "closed" : ""}`}
-                            width="8"
-                            height="8"
-                            viewBox="0 0 10 10"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M2.5 1.5 6 5l-3.5 3.5"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                          <FolderIcon />
+                          <FolderIcon size={18} open={!closed} />
                           <span className="folder-name">{folder.name}</span>
-                          <span className="folder-count">{items.length}</span>
+                        </button>
+                      )}
+                      {folderRenaming !== folder.id && (
+                        <button
+                          className="folder-add"
+                          onClick={() => void startNewChat(folder.id)}
+                          disabled={busy}
+                          title={`New conversation in ${folder.name}`}
+                          aria-label={`New conversation in ${folder.name}`}
+                        >
+                          <PlusIcon size={16} />
                         </button>
                       )}
                     </div>
-                    {!closed && (
-                      <div className="folder-children">
+                    <div
+                      className={`folder-children ${closed ? "rolled" : ""}`}
+                      aria-hidden={closed}
+                    >
+                      <div className="folder-children-inner">
                         {items.map((chat) => chatRow(chat, true))}
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })}
-              {folders.length > 0 && unfiledChats.length > 0 && (
-                <div className="chat-group-label">Unfiled</div>
-              )}
               {unfiledChats.map((chat) => chatRow(chat, false))}
             </div>
           </>,

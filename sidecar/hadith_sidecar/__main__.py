@@ -328,13 +328,13 @@ def _chats() -> dict:
     return store
 
 
-def _create_chat() -> dict:
+def _create_chat(folder_id: str | None = None) -> dict:
     from .thread import new_conversation
 
     import uuid
 
     chat = new_conversation(chat_id=f"c{uuid.uuid4().hex[:10]}")
-    chat["folder_id"] = None
+    chat["folder_id"] = folder_id
     _chats()[chat["id"]] = chat
     _state["active_chat"] = chat["id"]
     _persist_chat(chat)
@@ -529,11 +529,22 @@ def _thread_state(_params):
     return {"thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
-def _new_chat(_params):
-    """Start a fresh conversation. An untouched one is reused, not duplicated."""
+def _new_chat(params):
+    """Start a conversation in the folder asked for, or outside every folder.
+
+    An untouched conversation is reused only when it already lives where the
+    new one was asked for. Pressing "+" inside a folder must not hand back the
+    blank chat filed there, and a new chat must never land in a folder the
+    reader did not choose.
+    """
+    folder_id = params.get("folder_id") or None
+    if folder_id is not None:
+        folder_id = str(folder_id)
+        if not any(f["id"] == folder_id for f in _folder_list()):
+            raise ValueError(f"no such folder: {folder_id}")
     conv = _thread()
-    if conv["turns"]:
-        conv = _create_chat()
+    if conv["turns"] or (conv.get("folder_id") or None) != folder_id:
+        conv = _create_chat(folder_id)
     return {"thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
