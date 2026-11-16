@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from "react";
 import { isTauri } from "./api";
 
+export type { Update } from "@tauri-apps/plugin-updater";
+
 export interface AvailableUpdate {
   version: string;
   notes: string;
@@ -15,11 +17,20 @@ function publish(next: AvailableUpdate | null) {
   listeners.forEach((listener) => listener());
 }
 
+/** Loads the updater only when a check is actually wanted. */
+export async function findUpdate() {
+  const { check } = await import("@tauri-apps/plugin-updater");
+  return check();
+}
+
+export async function restartApp() {
+  const { relaunch } = await import("@tauri-apps/plugin-process");
+  await relaunch();
+}
+
 async function lookForUpdate() {
   try {
-    // Loaded on demand so the updater never sits in the startup path.
-    const { check } = await import("@tauri-apps/plugin-updater");
-    const found = await check();
+    const found = await findUpdate();
     if (found) publish({ version: found.version, notes: found.body ?? "" });
   } catch {
     // Offline, no release yet, or the endpoint is unreachable: stay quiet.

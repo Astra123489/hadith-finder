@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { findUpdate, restartApp, useAvailableUpdate, type Update } from "../update";
 import {
   api,
   formatMB,
@@ -12,7 +11,6 @@ import {
   type ModelsStatus,
 } from "../api";
 import type { ActiveModel, KvCache, LlmDevice } from "../api";
-import { useAvailableUpdate } from "../update";
 
 type ModelKey = "llm" | "embedder" | "reranker";
 
@@ -60,7 +58,7 @@ export default function SettingsView() {
     }
     setUpdate({ stage: "checking" });
     try {
-      const found = await check();
+      const found = await findUpdate();
       if (!found) {
         setUpdate({ stage: "none" });
         return;
@@ -85,7 +83,7 @@ export default function SettingsView() {
           setUpdate((u) => ({ ...u, received: (u.received ?? 0) + event.data.chunkLength }));
         }
       });
-      await relaunch();
+      await restartApp();
     } catch (e) {
       setUpdate({ stage: "error", notes: String(e) });
     }
