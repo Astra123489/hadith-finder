@@ -6,7 +6,7 @@ import type {
   Book,
   ChatSummary,
   Citation,
-  Narration,
+  NarrationPlace,
   Parallel,
   ThreadState,
   ThreadTurn,
@@ -115,10 +115,18 @@ interface Props {
   initialScope: number[] | null;
   onScopeChange: (ids: number[] | null) => void;
   onOpenCitation: (citation: Citation) => void;
+  onOpenPassage: (place: NarrationPlace) => void;
   onBookmark?: (citation: Citation, description: string) => Promise<void>;
 }
 
-export default function AskView({ books, initialScope, onScopeChange, onOpenCitation, onBookmark }: Props) {
+export default function AskView({
+  books,
+  initialScope,
+  onScopeChange,
+  onOpenCitation,
+  onOpenPassage,
+  onBookmark,
+}: Props) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<number[] | null>(initialScope);
   const [llms, setLlms] = useState<LlmOption[]>([]);
@@ -146,8 +154,6 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [scopeOpen, setScopeOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
-  const [narration, setNarration] = useState<Narration | null>(null);
-  const [narrationCopied, setNarrationCopied] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -478,24 +484,21 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     }
   };
 
-  /** The full text behind a "same narration" line in a source card. */
+  /** Follow a "same narration" line into the reader's own copy of the book. */
   const openNarration = async (p: Parallel) => {
     try {
-      setNarrationCopied(false);
-      setNarration(await api.readNarration(p.collection, p.number));
+      const place = await api.locateNarration(p.collection, p.number);
+      if (place.found && place.book_id != null) {
+        onOpenPassage(place);
+      } else {
+        setError(
+          `${place.collection_name} is not in your library, so ${p.label} cannot open in a book yet.`,
+        );
+      }
     } catch (e) {
       setError(String(e));
     }
   };
-
-  useEffect(() => {
-    if (!narration) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setNarration(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [narration]);
 
   const startRename = (id: string) => {
     const chat = chats.find((c) => c.id === id);
@@ -977,54 +980,6 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           </div>
         </form>
       </div>
-
-      {narration && (
-        <div
-          className="sheet-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${narration.collection_name} ${narration.number}`}
-          onClick={() => setNarration(null)}
-        >
-          <div className="narration-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="narration-head">
-              <div>
-                <div className="narration-title">
-                  {narration.collection_name} · Hadith {narration.number}
-                </div>
-                {narration.book && <div className="narration-book">{narration.book}</div>}
-              </div>
-              <button
-                className="icon-btn"
-                onClick={() => setNarration(null)}
-                title="Close (Esc)"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="narration-text" dir="auto">
-              {narration.text}
-            </p>
-            <div className="narration-actions">
-              <button
-                className="btn"
-                onClick={async () => {
-                  try {
-                    await writeClipboard(narration.text);
-                    setNarrationCopied(true);
-                    window.setTimeout(() => setNarrationCopied(false), 1400);
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              >
-                {narrationCopied ? "Copied" : "Copy narration"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {sidebarSlot &&
         createPortal(

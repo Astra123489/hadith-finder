@@ -7,7 +7,7 @@ import type {
   ChatSummary,
   DailyHadith,
   ImportResult,
-  Narration,
+  NarrationPlace,
   NewBookmark,
   ThreadState,
   ThreadTurn,
@@ -461,19 +461,35 @@ const demoApi = {
     }
     return Promise.resolve({ chats: demoChatList() });
   },
-  readNarration: (collection: string, number: number) => {
+  locateNarration: (collection: string, number: number) => {
     const found = DEMO_RESULT.citations
       .flatMap((c) => c.also_in)
       .find((p) => p.collection === collection && p.number === number);
-    if (!found) return Promise.reject(new Error(`no such narration: ${collection} ${number}`));
+    if (!found) {
+      return Promise.resolve({
+        found: false,
+        collection,
+        collection_name: collection,
+        short: collection,
+        number,
+        label: `${collection} ${number}`,
+      } satisfies NarrationPlace);
+    }
+    // The demo library is a fixture, so every known reference lands on it.
     return Promise.resolve({
-      collection: found.collection,
+      found: true,
+      collection,
       collection_name: found.collection_name,
       short: found.label.split(" ")[0],
-      number: found.number,
-      book: found.book,
-      text: found.snippet,
-    });
+      number,
+      label: found.label,
+      book_id: DEMO_BOOK.id,
+      book_title: DEMO_BOOK.title,
+      page_start: 0,
+      page_end: 0,
+      spans: DEMO_RESULT.citations[0].spans,
+      score: found.score,
+    } satisfies NarrationPlace);
   },
   rewindThread: (turnId: number) => {
     const chat = activeDemoChat();
@@ -644,9 +660,9 @@ const realApi = {
       { turnId },
     ),
 
-  readNarration: (collection: string, number: number) =>
-    invoke<{ narration: Narration }>("read_narration", { collection, number }).then(
-      (r) => r.narration as Narration,
+  locateNarration: (collection: string, number: number) =>
+    invoke<{ place: NarrationPlace }>("locate_narration", { collection, number }).then(
+      (r) => r.place as NarrationPlace,
     ),
 
   suggestFollowups: (count?: number) =>

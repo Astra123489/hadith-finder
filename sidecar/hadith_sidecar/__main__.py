@@ -137,6 +137,7 @@ def dispatch(method: str, params: dict):
         "compact_thread": _compact_thread,
         "rewind_thread": _rewind_thread,
         "read_narration": _read_narration,
+        "locate_narration": _locate_narration,
         "suggest_followups": _suggest_followups,
         "models_status": _models_status,
         "set_llm": _set_llm,
@@ -514,6 +515,20 @@ def _read_narration(params):
     if found is None:
         raise ValueError(f"no such narration: {collection} {number}")
     return {"narration": found}
+
+
+def _locate_narration(params):
+    """Point a cross-reference at the page it occupies in the imported book."""
+    from . import crossref
+
+    collection = str(params.get("collection") or "").strip()
+    number = params.get("number")
+    if not collection or number is None:
+        raise ValueError("params.collection and params.number are required")
+    conn = _conn()
+    if crossref.narration(conn, collection, int(number)) is None:
+        raise ValueError(f"no such narration: {collection} {number}")
+    return {"place": crossref.locate(conn, collection, int(number))}
 
 
 def _rewind_thread(params):

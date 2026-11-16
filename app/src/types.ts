@@ -24,13 +24,20 @@ export interface Parallel {
   same_collection: boolean;
 }
 
-export interface Narration {
+/** A cross-reference resolved to a page in the reader's own copy of the book. */
+export interface NarrationPlace {
+  found: boolean;
   collection: string;
   collection_name: string;
   short: string;
   number: number;
-  book: string;
-  text: string;
+  label: string;
+  book_id?: number;
+  book_title?: string;
+  page_start?: number;
+  page_end?: number;
+  spans?: SpanMap;
+  score?: number;
 }
 
 export interface Citation {

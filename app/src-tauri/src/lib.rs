@@ -188,6 +188,20 @@ async fn read_narration(app: AppHandle, collection: String, number: i64) -> Resu
 }
 
 #[tauri::command]
+async fn locate_narration(app: AppHandle, collection: String, number: i64) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(
+            &app,
+            "locate_narration",
+            json!({ "collection": collection, "number": number }),
+            30,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn rewind_thread(app: AppHandle, turn_id: i64) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         call_blocking(&app, "rewind_thread", json!({ "turn_id": turn_id }), 30)
@@ -380,6 +394,7 @@ pub fn run() {
             compact_thread,
             rewind_thread,
             read_narration,
+            locate_narration,
             suggest_followups,
             models_status,
             list_llms,

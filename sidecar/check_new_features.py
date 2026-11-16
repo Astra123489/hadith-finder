@@ -105,6 +105,39 @@ try:
 except SystemExit as exc:
     check("read_narration rejects an unknown number", "no such narration" in str(exc))
 
+place = call(
+    "locate_narration", {"collection": day["collection"], "number": day["number"]}
+)["place"]
+check("locate_narration names the collection", place["label"] == f"{place['short']} {day['number']}", place["label"])
+check("locate_narration reports an absent book", place["found"] is False)
+import sqlite3
+
+# The collection really imported, with one of its narrations inside: the
+# cross-reference should land on that page.
+seed = sqlite3.connect(LIB)
+matn = seed.execute("SELECT text FROM xref WHERE collection='bukhari' AND number=1").fetchone()[0]
+seed.execute(
+    "INSERT INTO books(id, title, author, language, file_path, sha256, page_count)"
+    " VALUES (7, 'Sahih al-Bukhari', 'Test', 'en', 'bukhari.pdf', 'seed-7', 9)"
+)
+seed.execute(
+    "INSERT INTO chunks(book_id, chunk_index, page_start, page_end, hadith_ref, chapter,"
+    " text, norm_text, spans_json) VALUES (7, 0, 41, 41, NULL, NULL, ?, ?, ?)",
+    (matn, matn.lower(), '{"41": [[10, 20, 100, 40]]}'),
+)
+seed.commit()
+seed.close()
+landed = call("locate_narration", {"collection": "bukhari", "number": 1})["place"]
+check("locate_narration finds the imported book", landed["found"] is True and landed["book_id"] == 7)
+check("locate_narration lands on the page", landed.get("page_start") == 41, landed.get("page_start"))
+check("locate_narration carries the highlight", landed.get("spans") == {"41": [[10, 20, 100, 40]]})
+
+try:
+    call("locate_narration", {"collection": day["collection"], "number": 999999})
+    check("locate_narration rejects an unknown number", False)
+except SystemExit as exc:
+    check("locate_narration rejects an unknown number", "no such narration" in str(exc))
+
 added = call(
     "add_bookmark",
     {

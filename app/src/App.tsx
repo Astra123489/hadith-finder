@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import "./styles.css";
 import { api } from "./api";
-import type { Book, Bookmark, Citation } from "./types";
+import type { Book, Bookmark, Citation, NarrationPlace } from "./types";
 import AskView from "./views/AskView";
 import DailyView from "./views/DailyView";
 import BookmarksView from "./views/BookmarksView";
@@ -117,6 +117,23 @@ export default function App() {
     [books],
   );
 
+  /** A cross-reference opens the page it occupies in the imported book. */
+  const openPassage = useCallback(
+    (place: NarrationPlace) => {
+      const book = books.find((b) => b.id === place.book_id);
+      if (!book) return;
+      const page = place.page_start ?? 0;
+      setViewer({
+        filePath: book.file_path,
+        title: `${place.book_title ?? book.title} — p. ${page + 1}`,
+        page,
+        spans: place.spans ?? {},
+        tag: place.label,
+      });
+    },
+    [books],
+  );
+
   /** A saved narration opens the same highlighted PDF passage it came from. */
   const openBookmark = useCallback(
     (bookmark: Bookmark) => {
@@ -198,6 +215,7 @@ export default function App() {
             initialScope={scope}
             onScopeChange={setScope}
             onOpenCitation={openCitation}
+            onOpenPassage={openPassage}
             onBookmark={bookmarkCitation}
           />
         )}

@@ -155,6 +155,79 @@ def narration(conn, collection: str, number: int) -> dict | None:
     }
 
 
+def locate(conn, collection: str, number: int) -> dict:
+    """Where this narration sits in the reader's own copy of the collection.
+
+    The shipped corpus is text only, so a "same narration" line cannot open a
+    page by itself. If the collection was imported as a book, the closest chunk
+    of that book is found by full-text search and the page is returned with it.
+    Books are matched by title, the same way citations are attributed.
+    """
+    ensure_index(conn)
+    meta = {c["slug"]: c for c in collections(conn)}
+    info = meta.get(collection, {})
+    name = info.get("name", collection)
+    short = info.get("short", collection)
+    label = f"{short} {int(number)}"
+    missing = {
+        "found": False,
+        "collection": collection,
+        "collection_name": name,
+        "short": short,
+        "number": int(number),
+        "label": label,
+    }
+    if not info:
+        return missing
+    row = conn.execute(
+        "SELECT text FROM xref WHERE collection = ? AND number = ? LIMIT 1",
+        (collection, int(number)),
+    ).fetchone()
+    if row is None:
+        return missing
+    books = conn.execute("SELECT id, title FROM books ORDER BY id").fetchall()
+    book = next(
+        (b for b in books if _collection_from_title(b["title"], [info]) == collection),
+        None,
+    )
+    if book is None:
+        return missing
+    wanted = _tokens(row["text"])
+    if not wanted:
+        return missing
+    query = " OR ".join(f'"{t}"' for t in sorted(wanted)[:40])
+    try:
+        chunks = conn.execute(
+            "SELECT c.id, c.page_start, c.page_end, c.spans_json, c.text FROM chunks c"
+            " JOIN chunks_fts ON chunks_fts.rowid = c.id"
+            " WHERE chunks_fts MATCH ? AND c.book_id = ? LIMIT 25",
+            (query, book["id"]),
+        ).fetchall()
+    except Exception:
+        return missing
+    best, best_score = None, 0.0
+    for chunk in chunks:
+        overlap = len(wanted & _tokens(chunk["text"])) / len(wanted)
+        if overlap > best_score:
+            best, best_score = chunk, overlap
+    if best is None or best_score < 0.2:
+        return missing
+    try:
+        spans = json.loads(best["spans_json"])
+    except Exception:
+        spans = {}
+    return {
+        **missing,
+        "found": True,
+        "book_id": int(book["id"]),
+        "book_title": book["title"],
+        "page_start": int(best["page_start"]),
+        "page_end": int(best["page_end"]),
+        "spans": spans,
+        "score": round(best_score, 3),
+    }
+
+
 def _doc_count(conn) -> int:
     row = conn.execute("SELECT COUNT(*) c FROM xref").fetchone()
     return int(row["c"]) if row else 0
