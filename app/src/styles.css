@@ -302,15 +302,19 @@ html, body, #root {
 
 .model-select {
   max-width: 340px;
-  padding: 6px 10px;
+  /* Room on the right for the native arrow, and no shrinking in the flex row —
+     otherwise the model name gets clipped by the rim. */
+  flex: 0 0 auto;
+  padding: 7px 28px 7px 14px;
   font: inherit;
   font-size: 12.5px;
   color: var(--text);
-  background: #101f17;
+  background-color: #101f17;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-pill);
   color-scheme: dark;
   cursor: pointer;
+  text-overflow: ellipsis;
 }
 .model-select:hover { border-color: var(--gold-line); }
 .model-select option {
