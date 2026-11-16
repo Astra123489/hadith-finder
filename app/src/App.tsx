@@ -8,6 +8,7 @@ import BookmarksView from "./views/BookmarksView";
 import LibraryView from "./views/LibraryView";
 import SettingsView from "./views/SettingsView";
 import PdfViewer from "./views/PdfViewer";
+import LaunchWarning from "./components/LaunchWarning";
 
 type View = "ask" | "daily" | "bookmarks" | "library" | "settings";
 
@@ -79,6 +80,8 @@ export default function App() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [scope, setScope] = useState<number[] | null>(null);
   const [viewer, setViewer] = useState<ViewerState | null>(null);
+  // Every launch starts here: there is no "don't show again" to opt out of.
+  const [warningOpen, setWarningOpen] = useState(true);
 
   const refreshBooks = useCallback(async () => {
     try {
@@ -231,6 +234,8 @@ export default function App() {
         {view === "library" && <LibraryView books={books} onChanged={refreshBooks} />}
         {view === "settings" && <SettingsView />}
       </main>
+
+      {warningOpen && <LaunchWarning onClose={() => setWarningOpen(false)} />}
 
       {viewer && (
         <PdfViewer
