@@ -205,7 +205,7 @@ export default function LibraryView({ books, onChanged }: Props) {
                       <button className="btn btn-ghost" onClick={() => rebuild(b)} disabled={busy} title="Re-read the PDF with the current extractor and rebuild passages, then reindex">
                         Rebuild
                       </button>
-                      <button className="btn btn-ghost" onClick={() => setConfirmDelete(b.id)} disabled={busy} title="Remove from library">
+                      <button className="btn btn-quiet-danger" onClick={() => setConfirmDelete(b.id)} disabled={busy} title="Remove from library">
                         Delete
                       </button>
                     </>

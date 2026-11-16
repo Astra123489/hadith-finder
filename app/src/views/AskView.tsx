@@ -67,6 +67,8 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   // up once and re-rendered into when the tab is revisited.
   const [sidebarSlot, setSidebarSlot] = useState<HTMLElement | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const scopeRef = useRef<HTMLDivElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -153,6 +155,23 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
     };
   }, [menu]);
 
+  // The book picker closes on an outside click or Escape.
+  useEffect(() => {
+    if (!scopeOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!scopeRef.current?.contains(e.target as Node)) setScopeOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setScopeOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [scopeOpen]);
+
   // The context panel closes when you click anywhere else.
   useEffect(() => {
     if (!showCtx) return;
@@ -166,11 +185,11 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const noneSelected = Array.isArray(scope) && scope.length === 0 && books.length > 0;
 
   const scopeLabel = useMemo(() => {
-    if (!scope || scope.length === books.length) return "all loaded books";
-    if (scope.length === 0) return "no books selected";
+    if (!scope || scope.length === books.length) return "All books";
+    if (scope.length === 0) return "No books";
     return scope.length === 1
       ? books.find((b) => b.id === scope[0])?.title ?? "1 book"
-      : `${scope.length} books selected`;
+      : `${scope.length} of ${books.length}`;
   }, [scope, books]);
 
   const toggleScope = (id: number) => {
@@ -533,19 +552,26 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
         )}
 
         {turns.length === 0 && !busy && books.length > 0 && (
-          <div className="examples">
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex}
-                className="example-chip"
-                onClick={() => {
-                  setQuery(ex);
-                  inputRef.current?.focus();
-                }}
-              >
-                {ex}
-              </button>
-            ))}
+          <div className="ask-intro">
+            <h2>Ask anything about your books</h2>
+            <p>
+              Every answer stays tied to the passage it came from — open a source to see it lit up in the
+              page it was printed on.
+            </p>
+            <div className="examples">
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex}
+                  className="example-chip"
+                  onClick={() => {
+                    setQuery(ex);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -594,6 +620,54 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
                   ))}
                 </select>
               </label>
+            )}
+            {books.length > 0 && (
+              <div className="scope-wrap" ref={scopeRef}>
+                <button
+                  type="button"
+                  className="scope-chip scope-pick"
+                  onClick={() => setScopeOpen((v) => !v)}
+                  disabled={busy}
+                  aria-expanded={scopeOpen}
+                  aria-haspopup="true"
+                  title="Which books to search"
+                >
+                  <strong>{scopeLabel}</strong>
+                </button>
+                {scopeOpen && (
+                  <div className="scope-menu" role="menu" aria-label="Books to search">
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={scope === null}
+                      className={`scope-opt ${scope === null ? "on" : ""}`}
+                      onClick={() => {
+                        selectAll();
+                        setScopeOpen(false);
+                      }}
+                    >
+                      <span className="scope-tick">{scope === null ? "✓" : ""}</span> All loaded books
+                    </button>
+                    {books.map((b) => {
+                      const on = scope === null || scope.includes(b.id);
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={on}
+                          className={`scope-opt ${on ? "on" : ""}`}
+                          onClick={() => toggleScope(b.id)}
+                          title={b.title}
+                        >
+                          <span className="scope-tick">{on ? "✓" : ""}</span>
+                          <span className="scope-opt-name">{b.title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
             <span className="ask-hint"><span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> to ask</span>
             <div className="spacer" />
@@ -671,22 +745,6 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
             >
               {busy ? (<><span className="spinner" /> Thinking…</>) : turns.length > 0 ? "Follow up →" : "Ask →"}
             </button>
-          </div>
-          <div className="scope-row">
-            <span>Searching: <strong style={{ color: "var(--text)" }}>{scopeLabel}</strong></span>
-            {books.length > 0 && (
-              <>
-                <button className="scope-chip" type="button" onClick={selectAll}>All</button>
-                {books.map((b) => {
-                  const on = scope === null || scope.includes(b.id);
-                  return (
-                    <button key={b.id} type="button" className={`scope-chip ${on ? "on" : ""}`} onClick={() => toggleScope(b.id)} title={b.title}>
-                      {b.title}
-                    </button>
-                  );
-                })}
-              </>
-            )}
           </div>
         </form>
       </div>

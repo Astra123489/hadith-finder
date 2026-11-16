@@ -83,6 +83,10 @@ export default function DailyView({ bookmarks, onBookmarks }: Props) {
     }
   };
 
+  // Translations often arrive already wrapped in straight quotes; unwrap the
+  // outer pair so the card can set its own, without doubling them.
+  const body = hadith ? hadith.text.trim().replace(/^["“]/, "").replace(/["”]$/, "") : "";
+
   return (
     <div className="page">
       <h1 className="page-title">Hadith of the day</h1>
@@ -129,7 +133,9 @@ export default function DailyView({ bookmarks, onBookmarks }: Props) {
           </div>
           {hadith.book && <div className="daily-chapter">{hadith.book}</div>}
           <blockquote className="daily-text" dir="auto">
-            {hadith.text}
+            <span className="daily-quote">“</span>
+            {body}
+            <span className="daily-quote">”</span>
           </blockquote>
 
           {hadith.also_in.length > 0 && (

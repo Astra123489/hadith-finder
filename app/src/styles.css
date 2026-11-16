@@ -98,11 +98,19 @@ html, body, #root {
 }
 .nav-btn .nav-kbd {
   margin-left: auto;
-  font-size: 10.5px;
-  color: var(--text-faint);
-  border: 1px solid var(--line-strong);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--line);
   border-radius: 5px;
   padding: 2px 5px;
+}
+.nav-btn:hover .nav-kbd { color: var(--text); }
+.nav-btn.active .nav-kbd {
+  color: #f4d79a;
+  background: rgba(0, 0, 0, 0.34);
+  border-color: var(--gold-line);
 }
 
 
@@ -205,7 +213,7 @@ html, body, #root {
 }
 .ask-input {
   width: 100%;
-  min-height: 84px;
+  min-height: 62px;
   resize: vertical;
   background: #101f17;
   border: 1px solid var(--line-strong);
@@ -230,7 +238,7 @@ html, body, #root {
   gap: 12px;
   flex-wrap: wrap;
 }
-.ask-hint { color: var(--text-faint); font-size: 12px; }
+.ask-hint { color: #a39d89; font-size: 12px; }
 .spacer { flex: 1; }
 
 .toggle-pill {
@@ -294,14 +302,6 @@ html, body, #root {
   border-radius: 999px;
 }
 
-.scope-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-  font-size: 12.5px;
-  color: var(--text-dim);
-}
 .scope-chip {
   border: 1px solid var(--line-strong);
   background: transparent;
@@ -780,8 +780,7 @@ html, body, #root {
   color: var(--text);
   unicode-bidi: plaintext;
 }
-.daily-text::before { content: "“"; color: var(--gold); }
-.daily-text::after { content: "”"; color: var(--gold); }
+.daily-quote { color: var(--gold); }
 .daily-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .daily-note { max-width: 620px; }
 .daily-foot { font-size: 11.5px; color: var(--text-faint); line-height: 1.55; margin: 4px 0 0; }
@@ -919,7 +918,7 @@ html, body, #root {
   position: sticky;
   bottom: 0;
   padding: 18px 0 22px;
-  background: linear-gradient(180deg, rgba(15, 26, 20, 0) 0%, var(--bg) 22%);
+  background: linear-gradient(180deg, rgba(15, 26, 20, 0) 0%, var(--bg) 46%);
   z-index: 5;
 }
 
@@ -1041,7 +1040,7 @@ html, body, #root {
 /* a smaller context meter */
 .ctx-btn { gap: 5px; padding: 2px 3px; }
 .ctx-btn svg { display: block; }
-.ctx-pct { font-size: 10px; }
+.ctx-pct { font-size: 11px; color: var(--text-dim); }
 
 /* ---------- conversations in the sidebar ---------- */
 
@@ -1052,7 +1051,7 @@ html, body, #root {
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
-  margin: 14px -4px 0;
+  margin: 14px 0 0;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
@@ -1092,14 +1091,10 @@ html, body, #root {
 .chat-item {
   display: flex;
   align-items: center;
-  border-left: 2px solid transparent;
-  border-radius: 0 8px 8px 0;
+  border-radius: 9px;
 }
 .chat-item:hover { background: rgba(231, 220, 195, 0.05); }
-.chat-item.active {
-  border-left-color: var(--gold);
-  background: rgba(217, 164, 65, 0.09);
-}
+.chat-item.active { background: rgba(231, 220, 195, 0.07); }
 
 .chat-open {
   flex: 1;
@@ -1110,7 +1105,7 @@ html, body, #root {
   text-align: left;
   background: none;
   border: none;
-  padding: 8px 9px 8px 7px;
+  padding: 7px 9px;
   color: var(--text-dim);
   cursor: pointer;
 }
@@ -1186,4 +1181,122 @@ html, body, #root {
 .chat-menu button:focus-visible {
   outline: 2px solid var(--gold-line);
   outline-offset: -2px;
+}
+
+/* ---------- book scope picker ---------- */
+
+.scope-wrap { position: relative; display: inline-flex; }
+
+.scope-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.scope-pick strong {
+  color: var(--gold);
+  font-weight: 500;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-pick[aria-expanded="true"] { border-color: var(--gold-line); color: var(--text); }
+
+.scope-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  min-width: 264px;
+  max-width: 340px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.scope-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.scope-opt:hover { background: rgba(231, 220, 195, 0.06); color: var(--text); }
+.scope-opt.on { color: var(--text); }
+.scope-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-tick { width: 12px; flex: 0 0 auto; font-size: 11px; color: var(--gold); }
+
+/* ---------- the empty ask screen ---------- */
+
+.thread { display: flex; flex-direction: column; }
+
+.ask-intro {
+  margin: auto 0;
+  padding: 18px 0 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.ask-intro h2 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--text);
+  margin: 0;
+}
+.ask-intro p {
+  margin: 0;
+  max-width: 470px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.ask-intro .examples { justify-content: center; margin-top: 8px; max-width: 640px; }
+
+/* a Delete that stays quiet until you look at it */
+.btn-quiet-danger { background: transparent; border-color: transparent; color: #cf9a9a; }
+.btn-quiet-danger:hover { background: rgba(217, 107, 107, 0.14); border-color: rgba(217, 107, 107, 0.35); color: #f0a0a0; }
+
+/* ---------- keyboard focus and motion ---------- */
+
+.btn:focus-visible,
+.nav-btn:focus-visible,
+.icon-btn:focus-visible,
+.scope-chip:focus-visible,
+.suggest-chip:focus-visible,
+.example-chip:focus-visible,
+.toggle-pill:focus-visible,
+.ctx-btn:focus-visible,
+.scope-opt:focus-visible,
+.bookmark-note:focus-visible,
+.ask-input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

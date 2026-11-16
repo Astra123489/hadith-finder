@@ -387,12 +387,12 @@ export default function SettingsView() {
       </div>
 
       <div className="card settings-section">
-        <h2>Answer model</h2>
+        <h2>How answers are written</h2>
         <p>
           Thinking is always on: the model reasons before it answers, which is what makes “explain…”
           and comparison questions reliable. There is no fast/careful switch to tune — instead, pick
           which installed model writes the answer from the <strong>Model</strong> selector in the Ask tab
-          (the same models are managed above and in the Answer model card).
+          (the installed models are managed in the card above).
         </p>
       </div>
 
