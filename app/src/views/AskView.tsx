@@ -1269,7 +1269,11 @@ export default function AskView({
                         </button>
                       )}
                     </div>
-                    {!closed && items.map((chat) => chatRow(chat, true))}
+                    {!closed && (
+                      <div className="folder-children">
+                        {items.map((chat) => chatRow(chat, true))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
