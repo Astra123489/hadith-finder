@@ -2,6 +2,7 @@ mod sidecar;
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, RunEvent};
+use tauri_plugin_notification::NotificationExt;
 
 pub struct SidecarState(sidecar::Sidecar);
 
@@ -353,6 +354,87 @@ async fn daily_hadith(app: AppHandle, date: Option<String>) -> Result<Value, Str
 }
 
 #[tauri::command]
+async fn daily_notify(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "daily_notify", json!({}), 60))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_daily_notify(
+    app: AppHandle,
+    enabled: Option<bool>,
+    time: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut params = serde_json::Map::new();
+        if let Some(enabled) = enabled {
+            params.insert("enabled".into(), json!(enabled));
+        }
+        if let Some(time) = time {
+            params.insert("time".into(), json!(time));
+        }
+        call_blocking(&app, "set_daily_notify", Value::Object(params), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Windows toasts clip long bodies, so the reminder carries the opening lines.
+fn shorten(text: &str, limit: usize) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= limit {
+        return flat;
+    }
+    let cut: String = flat.chars().take(limit).collect();
+    match cut.rfind(' ') {
+        Some(at) => format!("{}…", &cut[..at]),
+        None => format!("{cut}…"),
+    }
+}
+
+/// Show the day's narration on the desktop once its time has passed.
+///
+/// Polling rather than one long sleep means a machine that was off at the
+/// scheduled time still gets the reminder shortly after it next starts.
+fn notify_tick(app: &AppHandle) {
+    let status = match call_blocking(app, "daily_notify", json!({}), 60) {
+        Ok(status) => status,
+        Err(_) => return,
+    };
+    if !status.get("due").and_then(Value::as_bool).unwrap_or(false) {
+        return;
+    }
+    let hadith = status.get("hadith").cloned().unwrap_or(Value::Null);
+    let text = hadith.get("text").and_then(Value::as_str).unwrap_or("").trim();
+    if text.is_empty() {
+        return;
+    }
+    let short = hadith.get("short").and_then(Value::as_str).unwrap_or("Hadith");
+    let number = hadith.get("number").and_then(Value::as_i64).unwrap_or(0);
+    let shown = app
+        .notification()
+        .builder()
+        .title(format!("Hadith of the day — {short} {number}"))
+        .body(shorten(text, 220))
+        .show();
+    // Only record the day once it has actually reached the desktop, so a
+    // refused or failed notification is retried instead of lost.
+    if shown.is_err() {
+        return;
+    }
+    let date = status.get("date").cloned().unwrap_or(Value::Null);
+    let _ = call_blocking(app, "mark_daily_notify", json!({ "date": date }), 60);
+}
+
+fn start_daily_notify(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        notify_tick(&app);
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    });
+}
+
+#[tauri::command]
 async fn stats(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "stats", json!({}), 60))
         .await
@@ -364,6 +446,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let lib_dir = app
                 .path()
@@ -374,6 +457,7 @@ pub fn run() {
             let sc = sidecar::Sidecar::spawn(&library, Some(app.handle().clone()))
                 .map_err(|e| e.to_string())?;
             app.manage(SidecarState(sc));
+            start_daily_notify(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -407,6 +491,8 @@ pub fn run() {
             delete_bookmark,
             update_bookmark,
             daily_hadith,
+            daily_notify,
+            set_daily_notify,
             stats,
         ])
         .build(tauri::generate_context!())

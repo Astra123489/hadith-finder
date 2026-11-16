@@ -110,6 +110,29 @@ place = call(
 )["place"]
 check("locate_narration names the collection", place["label"] == f"{place['short']} {day['number']}", place["label"])
 check("locate_narration reports an absent book", place["found"] is False)
+notify = call("daily_notify")
+check("notify off by default", notify["enabled"] is False, notify["time"])
+check("notify time defaults to 7am", notify["time"] == "07:00")
+check("notify not due while off", notify["due"] is False)
+
+armed = call("set_daily_notify", {"enabled": True, "time": "00:00"})
+check("notify enabled and rescheduled", armed["enabled"] is True and armed["time"] == "00:00")
+check("notify due once its time has passed", armed["due"] is True)
+check(
+    "due notify carries the day's narration",
+    bool(armed["hadith"] and len(armed["hadith"]["text"]) > 40),
+    f'{armed["hadith"]["short"]} {armed["hadith"]["number"]}' if armed["hadith"] else "",
+)
+
+try:
+    call("set_daily_notify", {"time": "25:00"})
+    check("notify rejects a bad time", False)
+except SystemExit as exc:
+    check("notify rejects a bad time", "HH:MM" in str(exc))
+
+shown = call("mark_daily_notify", {"date": armed["date"]})
+check("notify shown once a day", shown["due"] is False and shown["last_shown"] == armed["date"])
+
 import sqlite3
 
 # The collection really imported, with one of its narrations inside: the

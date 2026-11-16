@@ -14,6 +14,16 @@ import type {
   ThreadUsage,
 } from "./types";
 
+/** The daily-hadith reminder: its schedule, and whether today's is due now. */
+export interface DailyNotify {
+  enabled: boolean;
+  time: string;
+  last_shown: string | null;
+  due: boolean;
+  date: string;
+  hadith: DailyHadith | null;
+}
+
 export interface ReindexProgress {
   type: "progress";
   op: "reindex";
@@ -408,6 +418,9 @@ function demoThreadState(chat: DemoChat = activeDemoChat()): ThreadState {
   };
 }
 
+/** The demo keeps the schedule in memory; nothing is ever delivered. */
+const demoNotify = { enabled: false, time: "07:00", last_shown: null as string | null };
+
 const demoApi = {
   ping: () =>
     Promise.resolve({
@@ -560,6 +573,23 @@ const demoApi = {
       ],
     }),
   stats: () => Promise.resolve({ books: 1, chunks: 14, embedded: 14 }),
+  dailyNotify: () =>
+    Promise.resolve({
+      ...demoNotify,
+      due: false,
+      date: new Date().toISOString().slice(0, 10),
+      hadith: null,
+    }),
+  setDailyNotify: (opts: { enabled?: boolean; time?: string }) => {
+    if (opts.enabled !== undefined) demoNotify.enabled = opts.enabled;
+    if (opts.time !== undefined) demoNotify.time = opts.time;
+    return Promise.resolve({
+      ...demoNotify,
+      due: false,
+      date: new Date().toISOString().slice(0, 10),
+      hadith: null,
+    });
+  },
   modelsStatus: () =>
     Promise.resolve({
       llm: { ...demoModel, name: "Qwen3-8B-Instruct (preview)" },
@@ -671,6 +701,11 @@ const realApi = {
     ),
 
   listLlms: () => invoke<{ llms: LlmOption[]; active: string }>("list_llms"),
+
+  dailyNotify: () => invoke<DailyNotify>("daily_notify", {}),
+
+  setDailyNotify: (opts: { enabled?: boolean; time?: string }) =>
+    invoke<DailyNotify>("set_daily_notify", opts),
 
   stats: () =>
     invoke<{ books: number; chunks: number; embedded: number }>("stats"),

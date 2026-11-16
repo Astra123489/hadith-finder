@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, formatMB, type DownloadProgress, type ModelsStatus } from "../api";
+import {
+  api,
+  formatMB,
+  type DailyNotify,
+  type DownloadProgress,
+  type ModelsStatus,
+} from "../api";
 import type { ActiveModel, KvCache, LlmDevice } from "../api";
 
 type ModelKey = "llm" | "embedder" | "reranker";
@@ -14,6 +20,8 @@ export default function SettingsView() {
   const [ctxValue, setCtxValue] = useState("6144");
   const [ctxBusy, setCtxBusy] = useState(false);
   const [optBusy, setOptBusy] = useState(false);
+  const [notify, setNotify] = useState<DailyNotify | null>(null);
+  const [notifyBusy, setNotifyBusy] = useState(false);
   const [llmStatus, setLlmStatus] = useState<{
     stage: "loading" | "ready" | "error";
     message?: string;
@@ -29,6 +37,7 @@ export default function SettingsView() {
 
   useEffect(() => {
     api.ping().then(setInfo).catch(() => setInfo(null));
+    api.dailyNotify().then(setNotify).catch(() => setNotify(null));
     refresh();
     let unlisten: (() => void) | undefined;
     api.onProgress((p) => {
@@ -47,6 +56,20 @@ export default function SettingsView() {
     const ctx = models?.llm_active?.ctx;
     if (ctx) setCtxValue(String(ctx));
   }, [models?.llm_active?.ctx]);
+
+  /** Toggle or reschedule the desktop reminder; the sidecar owns the clock. */
+  const saveNotify = async (opts: { enabled?: boolean; time?: string }) => {
+    setNotifyBusy(true);
+    setError(null);
+    try {
+      setNotify(await api.setDailyNotify(opts));
+    } catch (e) {
+      setError(String(e));
+      api.dailyNotify().then(setNotify).catch(() => setNotify(null));
+    } finally {
+      setNotifyBusy(false);
+    }
+  };
 
   const saveCtx = async (value?: number) => {
     const n = value ?? Number(ctxValue);
@@ -384,6 +407,46 @@ export default function SettingsView() {
           and comparison questions reliable. There is no fast/careful switch to tune — instead, pick
           which installed model writes the answer from the <strong>Model</strong> selector in the Ask tab
           (the installed models are managed in the card above).
+        </p>
+      </div>
+
+      <div className="card settings-section">
+        <h2>Hadith of the day on your desktop</h2>
+        <p>
+          The day's narration can arrive as a desktop notification, outside the app window — so you
+          can read it without opening anything.
+        </p>
+        <div className="notify-row">
+          <label className="notify-toggle">
+            <input
+              type="checkbox"
+              checked={notify?.enabled ?? false}
+              disabled={notifyBusy}
+              onChange={(e) => saveNotify({ enabled: e.target.checked })}
+            />
+            <span>Show it as a desktop notification</span>
+          </label>
+          <label className="notify-time">
+            <span>at</span>
+            <input
+              type="time"
+              value={notify?.time ?? "07:00"}
+              disabled={notifyBusy || !notify?.enabled}
+              onChange={(e) =>
+                setNotify((cur) => (cur ? { ...cur, time: e.target.value } : cur))
+              }
+              onBlur={(e) => {
+                if (e.target.value && e.target.value !== notify?.time) {
+                  saveNotify({ time: e.target.value });
+                }
+              }}
+            />
+          </label>
+        </div>
+        <p className="setting-note">
+          If the computer is off or asleep at that time, the narration waits: you'll see it as soon
+          as Hadith Finder is next running. Each day reaches the desktop once — it never repeats,
+          and it never opens the app window itself.
         </p>
       </div>
 

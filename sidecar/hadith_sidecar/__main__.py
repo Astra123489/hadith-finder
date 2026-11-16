@@ -148,6 +148,9 @@ def dispatch(method: str, params: dict):
         "delete_bookmark": _delete_bookmark,
         "update_bookmark": _update_bookmark,
         "daily_hadith": _daily_hadith,
+        "daily_notify": _daily_notify,
+        "set_daily_notify": _set_daily_notify,
+        "mark_daily_notify": _mark_daily_notify,
         "shutdown": _shutdown,
     }
     if method not in handlers:
@@ -745,6 +748,80 @@ def _update_bookmark(params):
     updated = db.set_bookmark_description(conn, int(bookmark_id), params.get("description"))
     conn.commit()
     return {"updated": updated, "bookmarks": db.list_bookmarks(conn)}
+
+
+NOTIFY_TIME = "07:00"
+
+
+def _parse_time(raw) -> str:
+    text = str(raw or "").strip()
+    parts = text.split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise ValueError("time must be HH:MM, 24-hour")
+    hour, minute = (int(p) for p in parts)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("time must be HH:MM, 24-hour")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _notify_state(conn) -> dict:
+    """The daily-hadith reminder: when it should land, and whether it is due.
+
+    A reminder is due once the day's time has passed and that day has not been
+    shown yet, so a machine that was off at 07:00 still gets it when it wakes
+    up rather than missing the day entirely.
+    """
+    enabled = db.get_meta(conn, "daily_notify_enabled") == "1"
+    time = db.get_meta(conn, "daily_notify_time") or NOTIFY_TIME
+    last = db.get_meta(conn, "daily_notify_last") or None
+    now = datetime.datetime.now()
+    today = now.date().isoformat()
+    due = False
+    if enabled and last != today:
+        hour, minute = (int(part) for part in time.split(":"))
+        due = now >= now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    state = {
+        "enabled": enabled,
+        "time": time,
+        "last_shown": last,
+        "due": due,
+        "date": today,
+        "hadith": None,
+    }
+    if due:
+        from . import crossref
+
+        state["hadith"] = crossref.daily(conn, today)
+    return state
+
+
+def _daily_notify(params):
+    return _notify_state(_conn())
+
+
+def _set_daily_notify(params):
+    conn = _conn()
+    if "enabled" in params:
+        db.set_meta(conn, "daily_notify_enabled", "1" if params.get("enabled") else "0")
+    if "time" in params:
+        db.set_meta(conn, "daily_notify_time", _parse_time(params.get("time")))
+    conn.commit()
+    return _notify_state(conn)
+
+
+def _mark_daily_notify(params):
+    conn = _conn()
+    raw = str(params.get("date") or "").strip()
+    if raw:
+        try:
+            day = datetime.date.fromisoformat(raw).isoformat()
+        except ValueError:
+            raise ValueError("date must be an ISO date (YYYY-MM-DD)")
+    else:
+        day = datetime.date.today().isoformat()
+    db.set_meta(conn, "daily_notify_last", day)
+    conn.commit()
+    return _notify_state(conn)
 
 
 def _daily_hadith(params):
