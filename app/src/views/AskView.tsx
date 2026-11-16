@@ -68,7 +68,9 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
   const [sidebarSlot, setSidebarSlot] = useState<HTMLElement | null>(null);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const scopeRef = useRef<HTMLDivElement>(null);
+  const modelRef = useRef<HTMLDivElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -154,6 +156,23 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
       window.removeEventListener("keydown", onKey);
     };
   }, [menu]);
+
+  // The model picker closes on an outside click or Escape.
+  useEffect(() => {
+    if (!modelOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!modelRef.current?.contains(e.target as Node)) setModelOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModelOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [modelOpen]);
 
   // The book picker closes on an outside click or Escape.
   useEffect(() => {
@@ -599,25 +618,47 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
           />
           <div className="ask-row">
             {llms.length > 0 && (
-              <label className="model-pick" title="The local model that writes the answer">
+              <div className="model-pick" ref={modelRef}>
                 <span>Model</span>
-                <select
-                  className="model-select"
-                  value={modelPath}
+                <button
+                  type="button"
+                  className="model-pick-btn"
+                  onClick={() => setModelOpen((v) => !v)}
                   disabled={busy || modelBusy}
-                  onChange={(e) => {
-                    const next = llms.find((m) => m.path === e.target.value);
-                    if (next) pickModel(next);
-                  }}
+                  aria-expanded={modelOpen}
+                  aria-haspopup="listbox"
+                  title="The local model that writes the answer"
                 >
-                  {llms.map((m) => (
-                    <option key={m.path} value={m.path} disabled={!m.installed}>
-                      {m.name}
-                      {m.installed ? "" : " (not downloaded)"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <span className="model-pick-name">
+                    {llms.find((m) => m.path === modelPath)?.name ?? "Choose a model"}
+                  </span>
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+                    <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                {modelOpen && (
+                  <div className="model-menu" role="listbox" aria-label="Answer model">
+                    {llms.map((m) => (
+                      <button
+                        key={m.path}
+                        type="button"
+                        role="option"
+                        aria-selected={m.path === modelPath}
+                        className={`model-opt ${m.path === modelPath ? "on" : ""}`}
+                        disabled={!m.installed}
+                        onClick={() => {
+                          pickModel(m);
+                          setModelOpen(false);
+                        }}
+                      >
+                        <span className="model-opt-name">{m.name}</span>
+                        {!m.installed && <span className="model-opt-note">not downloaded</span>}
+                        {m.path === modelPath && <span className="scope-tick">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {books.length > 0 && (
               <div className="scope-wrap" ref={scopeRef}>

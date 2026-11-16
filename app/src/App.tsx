@@ -19,11 +19,10 @@ interface ViewerState {
   tag?: string;
 }
 
-const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
+const NAV: { key: View; label: string; icon: ReactNode }[] = [
   {
     key: "ask",
     label: "Ask",
-    kbd: "1",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M12 3a9 9 0 1 0 3.5 17.3L21 21l-1-4.6A8.96 8.96 0 0 0 12 3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
@@ -35,7 +34,6 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
   {
     key: "daily",
     label: "Daily",
-    kbd: "2",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
@@ -47,7 +45,6 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
   {
     key: "bookmarks",
     label: "Bookmarks",
-    kbd: "3",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M6 4.5h12a1 1 0 0 1 1 1V21l-7-4.2L5 21V5.5a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
@@ -57,7 +54,6 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
   {
     key: "library",
     label: "Library",
-    kbd: "4",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M4 19V5a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
@@ -68,7 +64,6 @@ const NAV: { key: View; label: string; icon: ReactNode; kbd: string }[] = [
   {
     key: "settings",
     label: "Settings",
-    kbd: "5",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="1.7" />
@@ -106,17 +101,6 @@ export default function App() {
     refreshBooks();
     refreshBookmarks();
   }, [refreshBooks, refreshBookmarks]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const hit = NAV.find((n) => n.kbd === e.key);
-      if (hit) setView(hit.key);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   const openCitation = useCallback(
     (citation: Citation) => {
@@ -198,7 +182,6 @@ export default function App() {
             {item.key === "bookmarks" && bookmarks.length > 0 && (
               <span className="nav-count">{bookmarks.length}</span>
             )}
-            <span className="nav-kbd">{item.kbd}</span>
           </button>
         ))}
 

@@ -105,22 +105,6 @@ html, body, #root {
   background: var(--gold-soft);
   border-color: var(--gold-line);
 }
-.nav-btn .nav-kbd {
-  margin-left: auto;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-  background: rgba(0, 0, 0, 0.24);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 2px 5px;
-}
-.nav-btn:hover .nav-kbd { color: var(--text); }
-.nav-btn.active .nav-kbd {
-  color: #f4d79a;
-  background: rgba(0, 0, 0, 0.34);
-  border-color: var(--gold-line);
-}
 
 
 
@@ -293,6 +277,7 @@ html, body, #root {
 }
 
 .model-pick {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -300,32 +285,7 @@ html, body, #root {
   color: var(--text-dim);
 }
 
-.model-select {
-  max-width: 340px;
-  /* Room on the right for the native arrow, and no shrinking in the flex row —
-     otherwise the model name gets clipped by the rim. */
-  flex: 0 0 auto;
-  padding: 7px 28px 7px 14px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--text);
-  background-color: #101f17;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  color-scheme: dark;
-  cursor: pointer;
-  text-overflow: ellipsis;
-}
-.model-select:hover { border-color: var(--gold-line); }
-.model-select option {
-  background: #16241c;
-  color: var(--text);
-}
-.model-select option:checked,
-.model-select option:hover {
-  background: #23382b;
-  color: var(--gold);
-}
+
 
 .scope-chip {
   border: 1px solid var(--line-strong);
@@ -776,7 +736,6 @@ html, body, #root {
   border-radius: var(--r-pill);
   padding: 1px 7px;
 }
-.nav-btn .nav-count + .nav-kbd { margin-left: 6px; }
 
 .bookmarks-summary {
   font-size: 12px;
@@ -1469,3 +1428,70 @@ html, body, #root {
 /* actions sit at the foot of a source card, so a tall card and a short one
    line up on the same baseline */
 .turn .citation .citation-actions { margin-top: auto; }
+
+/* ---------- model picker (replaces the native select) ---------- */
+
+.model-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 264px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: #101f17;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.model-pick-btn:hover:not(:disabled) { border-color: var(--gold-line); }
+.model-pick-btn:disabled { opacity: 0.5; cursor: default; }
+.model-pick-btn svg { flex: 0 0 auto; color: var(--text-dim); }
+.model-pick-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  min-width: 240px;
+  max-width: 340px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: var(--bg-raise);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.model-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.model-opt:hover:not(:disabled) { background: rgba(231, 220, 195, 0.06); color: var(--text); }
+.model-opt.on { color: var(--text); }
+.model-opt:disabled { opacity: 0.45; cursor: default; }
+.model-opt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-opt-note { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; }
