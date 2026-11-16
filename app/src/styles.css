@@ -982,7 +982,9 @@ html, body, #root {
   color: var(--gold);
 }
 .suggest-chip {
-  border: 1px solid var(--line-strong);
+  /* A suggestion is an offer, not a control you own — the broken line says so,
+     and the slight lift in weight keeps the dashes legible at 1px. */
+  border: 1px dashed rgba(231, 220, 195, 0.32);
   background: rgba(231, 220, 195, 0.04);
   color: var(--text-dim);
   border-radius: var(--r-pill);
