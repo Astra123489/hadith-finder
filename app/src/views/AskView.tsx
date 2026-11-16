@@ -552,21 +552,19 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
         )}
 
         {turns.length === 0 && !busy && books.length > 0 && (
-          <div className="ask-intro">
-            <div className="examples">
-              {EXAMPLES.map((ex) => (
-                <button
-                  key={ex}
-                  className="example-chip"
-                  onClick={() => {
-                    setQuery(ex);
-                    inputRef.current?.focus();
-                  }}
-                >
-                  {ex}
-                </button>
-              ))}
-            </div>
+          <div className="examples">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                className="example-chip"
+                onClick={() => {
+                  setQuery(ex);
+                  inputRef.current?.focus();
+                }}
+              >
+                {ex}
+              </button>
+            ))}
           </div>
         )}
 

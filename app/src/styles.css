@@ -1244,17 +1244,6 @@ html, body, #root {
 
 /* ---------- the empty ask screen ---------- */
 
-.thread { display: flex; flex-direction: column; }
-
-.ask-intro {
-  margin: auto 0;
-  padding: 18px 0 26px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-.ask-intro .examples { justify-content: center; margin-top: 0; max-width: 620px; }
 
 /* a Delete that stays quiet until you look at it */
 .btn-quiet-danger { background: transparent; border-color: transparent; color: #cf9a9a; }
