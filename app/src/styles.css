@@ -1252,24 +1252,9 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
   text-align: center;
 }
-.ask-intro h2 {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  font-size: 22px;
-  color: var(--text);
-  margin: 0;
-}
-.ask-intro p {
-  margin: 0;
-  max-width: 470px;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--text-dim);
-}
-.ask-intro .examples { justify-content: center; margin-top: 8px; max-width: 640px; }
+.ask-intro .examples { justify-content: center; margin-top: 0; max-width: 620px; }
 
 /* a Delete that stays quiet until you look at it */
 .btn-quiet-danger { background: transparent; border-color: transparent; color: #cf9a9a; }

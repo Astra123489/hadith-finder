@@ -553,11 +553,6 @@ export default function AskView({ books, initialScope, onScopeChange, onOpenCita
 
         {turns.length === 0 && !busy && books.length > 0 && (
           <div className="ask-intro">
-            <h2>Ask anything about your books</h2>
-            <p>
-              Every answer stays tied to the passage it came from — open a source to see it lit up in the
-              page it was printed on.
-            </p>
             <div className="examples">
               {EXAMPLES.map((ex) => (
                 <button
