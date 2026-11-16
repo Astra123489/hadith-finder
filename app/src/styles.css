@@ -1510,8 +1510,10 @@ html, body, #root {
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-.turn:hover .turn-actions,
-.turn:focus-within .turn-actions { opacity: 1; }
+/* Only the question reveals its actions — hovering the answer or the source
+   cards further down the turn should not bring them back. */
+.turn-q-wrap:hover .turn-actions,
+.turn-q-wrap:focus-within .turn-actions { opacity: 1; }
 .turn-actions button {
   display: inline-flex;
   align-items: center;
