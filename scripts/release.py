@@ -182,13 +182,17 @@ def main() -> int:
 
         git("add", *changes)
         git("commit", "-m", f"Release {new}")
-        git("tag", tag)
+        # Annotated on purpose: `--follow-tags` skips lightweight tags, which is
+        # how v0.4.0 got committed and "pushed" without its tag ever shipping.
+        git("tag", "-a", tag, "-m", f"Release {new}")
         print(f"committed and tagged {tag}")
 
         if args.no_push:
-            print("not pushed; run: git push origin " + args.branch + " --follow-tags")
+            print(f"not pushed; run: git push origin {args.branch} {tag}")
             return 0
-        git("push", "origin", args.branch, "--follow-tags")
+        git("push", "origin", args.branch, tag)
+        if not git("ls-remote", "--tags", "origin", tag):
+            raise ReleaseError(f"pushed {args.branch}, but {tag} never reached the remote")
         print(f"pushed {args.branch} and {tag}; the release workflow is building it")
         return 0
     except ReleaseError as error:
