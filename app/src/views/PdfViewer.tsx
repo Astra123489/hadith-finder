@@ -98,8 +98,14 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowRight") go(1);
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // Arrows belong to the page field while it has focus.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (e.key === "ArrowRight") go(1);
       else if (e.key === "ArrowLeft") go(-1);
     };
     window.addEventListener("keydown", onKey);
@@ -117,46 +123,93 @@ export default function PdfViewer({ filePath, title, initialPage, spans, sourceT
     .sort((a, b) => a - b);
 
   return (
-    <div className="viewer-overlay" role="dialog" aria-modal="true">
+    <div className="viewer-overlay" role="dialog" aria-modal="true" aria-label={title}>
       <div className="viewer-toolbar">
-        <button className="icon-btn" onClick={onClose} title="Close (Esc)">✕</button>
-        <div className="viewer-title">{title}</div>
+        <button
+          className="icon-btn viewer-close"
+          onClick={onClose}
+          title="Close (Esc)"
+          aria-label="Close the book"
+        >
+          ✕
+        </button>
+
+        <div className="viewer-heading">
+          <div className="viewer-title" title={title}>
+            {title}
+          </div>
+          {sourceTag && <span className="viewer-tag">source {sourceTag}</span>}
+          {highlightedPages.map((p) => (
+            <button
+              key={p}
+              className="viewer-jump"
+              onClick={() => setPage(p)}
+              title={`This citation continues on page ${p + 1}`}
+            >
+              also p. {p + 1}
+            </button>
+          ))}
+        </div>
+
         <div className="spacer" />
-        {sourceTag && <span className="scope-chip on">source {sourceTag}</span>}
-        {highlightedPages.map((p) => (
+
+        <div className="viewer-group">
           <button
-            key={p}
-            className="scope-chip"
-            onClick={() => setPage(p)}
-            title={`This citation continues on page ${p + 1}`}
+            className="icon-btn"
+            onClick={() => go(-1)}
+            title="Previous page (←)"
+            aria-label="Previous page"
+            disabled={page <= 0}
           >
-            p. {p + 1} ▸
+            ‹
           </button>
-        ))}
-        <button className="icon-btn" onClick={() => zoom(-0.2)} title="Zoom out">−</button>
-        <span style={{ color: "var(--text-dim)", fontSize: 13, minWidth: 44, textAlign: "center" }}>
-          {Math.round(scale * 100)}%
-        </span>
-        <button className="icon-btn" onClick={() => zoom(0.2)} title="Zoom in">+</button>
-        <button className="icon-btn" onClick={() => go(-1)} title="Previous page (←)">‹</button>
-        <input
-          className="page-input"
-          type="number"
-          min={1}
-          max={numPages}
-          value={page + 1}
-          onChange={(e) => {
-            const n = parseInt(e.target.value, 10);
-            if (!Number.isNaN(n)) setPage(Math.min(Math.max(0, n - 1), numPages - 1));
-          }}
-        />
-        <span style={{ color: "var(--text-faint)", fontSize: 13 }}>/ {numPages || "…"}</span>
-        <button className="icon-btn" onClick={() => go(1)} title="Next page (→)">›</button>
+          <input
+            className="page-input"
+            type="number"
+            min={1}
+            max={numPages}
+            value={page + 1}
+            aria-label="Page number"
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              if (!Number.isNaN(n)) setPage(Math.min(Math.max(0, n - 1), numPages - 1));
+            }}
+          />
+          <span className="viewer-total">of {numPages || "…"}</span>
+          <button
+            className="icon-btn"
+            onClick={() => go(1)}
+            title="Next page (→)"
+            aria-label="Next page"
+            disabled={numPages > 0 && page >= numPages - 1}
+          >
+            ›
+          </button>
+        </div>
+
+        <div className="viewer-group">
+          <button className="icon-btn" onClick={() => zoom(-0.2)} title="Zoom out" aria-label="Zoom out">
+            −
+          </button>
+          <span className="viewer-zoom">{Math.round(scale * 100)}%</span>
+          <button className="icon-btn" onClick={() => zoom(0.2)} title="Zoom in" aria-label="Zoom in">
+            +
+          </button>
+        </div>
       </div>
       <div className="viewer-body">
         {error ? (
-          <div className="error-banner" style={{ maxWidth: 560 }}>
-            Could not render this PDF: {error}
+          <div className="viewer-error">
+            <strong>This page could not be opened.</strong>
+            <p>
+              The PDF is read straight from disk — it may have moved, or the file may be locked by another
+              program.
+            </p>
+            <code>{error}</code>
+          </div>
+        ) : !pdf ? (
+          <div className="viewer-loading">
+            <span className="spinner" /> Opening the book…
           </div>
         ) : (
           <div className="viewer-stage" ref={stageRef}>
