@@ -1650,3 +1650,98 @@ html, body, #root {
 .model-row.writer-banner .book-actions { align-self: center; }
 
 .local-writer.is-hidden { display: none; }
+
+/* ---------- conversation folders ---------- */
+
+.chat-new.chat-folder { font-size: 13px; padding: 2px 5px; }
+.chat-new.chat-folder svg { display: block; }
+
+.folder-group { display: flex; flex-direction: column; gap: 1px; }
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-md);
+  margin-top: 4px;
+}
+.folder-row:hover { background: rgba(231, 220, 195, 0.04); }
+
+.folder-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 6px 9px;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-align: left;
+}
+.folder-toggle:hover { color: var(--text-dim); }
+.folder-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; border-radius: var(--r-sm); }
+
+.folder-icon { flex: 0 0 auto; color: var(--gold); opacity: 0.75; }
+.folder-chevron { flex: 0 0 auto; transition: transform 0.14s ease; }
+.folder-chevron.closed { transform: rotate(-90deg); }
+
+.folder-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-count {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.folder-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 3px 6px;
+  background: rgba(231, 220, 195, 0.06);
+  border: 1px solid var(--gold-line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+}
+
+.chat-item.in-folder { margin-left: 10px; }
+
+.chat-group-label {
+  margin: 8px 0 2px;
+  padding: 0 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.chat-menu .menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line-strong);
+}
+
+.chat-menu .menu-label {
+  padding: 4px 11px 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.chat-menu { max-height: min(60vh, 420px); overflow-y: auto; }

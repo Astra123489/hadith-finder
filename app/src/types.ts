@@ -69,6 +69,13 @@ export interface AskResult {
 }
 
 /** A saved conversation in the chat switcher. */
+/** A named drawer in the conversation rail. */
+export interface ChatFolder {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface ChatSummary {
   id: string;
   title: string;
@@ -76,6 +83,7 @@ export interface ChatSummary {
   created_at: string;
   updated_at: string;
   active: boolean;
+  folder_id?: string | null;
 }
 
 /** How full the model's context window is, and where compaction kicks in. */

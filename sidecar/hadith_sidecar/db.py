@@ -92,6 +92,11 @@ CREATE INDEX IF NOT EXISTS idx_chunks_book ON chunks(book_id);
 CREATE INDEX IF NOT EXISTS idx_gradings_chunk ON gradings(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
+CREATE TABLE IF NOT EXISTS chat_folders(
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 """
 
 
@@ -101,6 +106,10 @@ def connect(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(_SCHEMA)
+    # Libraries made before folders existed gain the column in place.
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(chats)").fetchall()}
+    if "folder_id" not in columns:
+        conn.execute("ALTER TABLE chats ADD COLUMN folder_id TEXT")
     conn.execute(
         "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
         (SCHEMA_VERSION,),
@@ -312,10 +321,10 @@ def save_chat(conn, chat: dict) -> None:
     """Upsert one conversation; the transcript itself lives in `data` as JSON."""
     turns = chat.get("turns") or []
     conn.execute(
-        "INSERT INTO chats(id, title, turns, data, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+        "INSERT INTO chats(id, title, turns, data, created_at, updated_at, folder_id) "
+        "VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
         "title=excluded.title, turns=excluded.turns, data=excluded.data, "
-        "updated_at=excluded.updated_at",
+        "updated_at=excluded.updated_at, folder_id=excluded.folder_id",
         (
             chat["id"],
             chat.get("title") or "",
@@ -323,6 +332,7 @@ def save_chat(conn, chat: dict) -> None:
             json.dumps(chat, ensure_ascii=False),
             chat.get("created_at") or "",
             chat.get("updated_at") or chat.get("created_at") or "",
+            chat.get("folder_id"),
         ),
     )
 
@@ -340,10 +350,47 @@ def load_chat(conn, chat_id: str) -> dict | None:
 def list_chats(conn) -> list[dict]:
     """Chat list without the transcripts, newest first."""
     rows = conn.execute(
-        "SELECT id, title, turns, created_at, updated_at FROM chats "
+        "SELECT id, title, turns, created_at, updated_at, folder_id FROM chats "
         "ORDER BY updated_at DESC, id DESC"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- chat folders ----------
+
+def list_folders(conn) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, name, created_at FROM chat_folders ORDER BY created_at, name"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def insert_folder(conn, folder_id: str, name: str, created_at: str) -> None:
+    conn.execute(
+        "INSERT INTO chat_folders(id, name, created_at) VALUES (?,?,?)",
+        (folder_id, name, created_at),
+    )
+
+
+def rename_folder(conn, folder_id: str, name: str) -> bool:
+    cur = conn.execute("UPDATE chat_folders SET name = ? WHERE id = ?", (name, folder_id))
+    return cur.rowcount > 0
+
+
+def delete_folder(conn, folder_id: str) -> bool:
+    """Removing a folder keeps its conversations, unfiled."""
+    conn.execute(
+        "UPDATE chats SET folder_id = NULL WHERE folder_id = ?", (folder_id,)
+    )
+    cur = conn.execute("DELETE FROM chat_folders WHERE id = ?", (folder_id,))
+    return cur.rowcount > 0
+
+
+def set_chat_folder(conn, chat_id: str, folder_id: str | None) -> bool:
+    cur = conn.execute(
+        "UPDATE chats SET folder_id = ? WHERE id = ?", (folder_id, chat_id)
+    )
+    return cur.rowcount > 0
 
 
 def delete_chat(conn, chat_id: str) -> bool:

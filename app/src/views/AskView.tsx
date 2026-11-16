@@ -1,9 +1,19 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api";
 import type { LlmOption } from "../api";
 import type {
   Book,
+  ChatFolder,
   ChatSummary,
   Citation,
   NarrationPlace,
@@ -23,6 +33,98 @@ const EXAMPLES = [
 
 const NOT_FOUND_PREFIX = "I could not find this in the loaded books.";
 const RING = 2 * Math.PI * 12;
+
+interface ChatRowProps {
+  chat: ChatSummary;
+  inFolder: boolean;
+  busy: boolean;
+  renaming: boolean;
+  value: string;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onOpen: () => void;
+  onMenu: (event: ReactMouseEvent) => void;
+  onValue: (value: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  onBlur: () => void;
+}
+
+function ChatRow({
+  chat,
+  inFolder,
+  busy,
+  renaming,
+  value,
+  inputRef,
+  onOpen,
+  onMenu,
+  onValue,
+  onCommit,
+  onCancel,
+  onBlur,
+}: ChatRowProps) {
+  return (
+    <div
+      className={`chat-item ${chat.active ? "active" : ""} ${renaming ? "renaming" : ""}${
+        inFolder ? " in-folder" : ""
+      }`}
+      onContextMenu={onMenu}
+    >
+      {renaming ? (
+        <>
+          <ChatIcon />
+          <input
+            ref={inputRef}
+            className="chat-rename"
+            value={value}
+            onChange={(e) => onValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onCommit();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                onCancel();
+              }
+            }}
+            onBlur={onBlur}
+            aria-label="Conversation name"
+          />
+        </>
+      ) : (
+        <button
+          className="chat-open"
+          onClick={onOpen}
+          disabled={busy || chat.active}
+          title={chat.title || "New conversation"}
+        >
+          <ChatIcon />
+          <span className="chat-name">{chat.title || "New conversation"}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FolderIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      className="folder-icon"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3.6 6.9a1.8 1.8 0 0 1 1.8-1.8h3.4l1.9 2.3h7.9a1.8 1.8 0 0 1 1.8 1.8v7.9a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V6.9Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function ChatIcon() {
   return (
@@ -150,7 +252,17 @@ export default function AskView({
   // The sidebar renders after this view mounts, so the portal target is looked
   // up once and re-rendered into when the tab is revisited.
   const [sidebarSlot, setSidebarSlot] = useState<HTMLElement | null>(null);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    id: string;
+    x: number;
+    y: number;
+    kind: "chat" | "folder";
+  } | null>(null);
+  const [folders, setFolders] = useState<ChatFolder[]>([]);
+  const [closedFolders, setClosedFolders] = useState<string[]>([]);
+  const [folderRenaming, setFolderRenaming] = useState<string | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const [copiedTurn, setCopiedTurn] = useState<number | null>(null);
@@ -328,6 +440,7 @@ export default function AskView({
       .then((res) => {
         if (!alive) return;
         setChats(res.chats);
+        setFolders(res.folders ?? []);
         if (res.thread.turns.length > 0) applyThread(res.thread);
       })
       .catch(() => {
@@ -528,6 +641,64 @@ export default function AskView({
     }
   };
 
+  const createFolder = async () => {
+    try {
+      const res = await api.addFolder("New folder");
+      setFolders(res.folders);
+      setFolderName("New folder");
+      setFolderRenaming(res.folder);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const commitFolderRename = async () => {
+    const id = folderRenaming;
+    if (!id) return;
+    const name = folderName.trim();
+    setFolderRenaming(null);
+    if (!name) return;
+    try {
+      const res = await api.renameFolder(id, name);
+      setFolders(res.folders);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // Select the whole default name, so typing replaces "New folder".
+  useEffect(() => {
+    if (folderRenaming) folderInputRef.current?.select();
+  }, [folderRenaming]);
+
+  const removeFolder = async (id: string) => {
+    setMenu(null);
+    if (busy) return;
+    try {
+      const res = await api.deleteFolder(id);
+      setFolders(res.folders);
+      setChats(res.chats);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const fileChat = async (id: string, folderId: string | null) => {
+    setMenu(null);
+    try {
+      const res = await api.moveChat(id, folderId);
+      setChats(res.chats);
+      setFolders(res.folders);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const toggleFolder = (id: string) =>
+    setClosedFolders((cur) =>
+      cur.includes(id) ? cur.filter((f) => f !== id) : [...cur, id],
+    );
+
   const removeChat = async (id: string) => {
     if (busy) return;
     try {
@@ -589,6 +760,35 @@ export default function AskView({
   const pct = usage?.pct ?? 0;
   const level = pct >= 0.9 ? "hot" : pct >= 0.7 ? "warm" : "";
   const activeChatId = chats.find((c) => c.active)?.id;
+  const unfiledChats = chats.filter((c) => !c.folder_id);
+
+  const chatRow = (chat: ChatSummary, inFolder: boolean) => (
+    <ChatRow
+      key={chat.id}
+      chat={chat}
+      inFolder={inFolder}
+      busy={busy}
+      renaming={renamingId === chat.id}
+      value={renameValue}
+      inputRef={renameInputRef}
+      onOpen={() => openChatItem(chat.id)}
+      onMenu={(e) => {
+        e.preventDefault();
+        setMenu({ id: chat.id, x: e.clientX, y: e.clientY, kind: "chat" });
+      }}
+      onValue={setRenameValue}
+      onCommit={() => void commitRename()}
+      onCancel={() => {
+        renameCancelled.current = true;
+        setRenamingId(null);
+      }}
+      onBlur={() => {
+        const cancelled = renameCancelled.current;
+        renameCancelled.current = false;
+        if (!cancelled) void commitRename();
+      }}
+    />
+  );
 
   return (
     <div className="page ask-page">
@@ -987,6 +1187,14 @@ export default function AskView({
             <div className="chat-slot-head">
               <span className="chat-slot-title">Conversations</span>
               <button
+                className="chat-new chat-folder"
+                onClick={() => void createFolder()}
+                title="New folder"
+                aria-label="New folder"
+              >
+                <FolderIcon size={14} />
+              </button>
+              <button
                 className="chat-new"
                 onClick={startNewChat}
                 disabled={busy}
@@ -1000,54 +1208,73 @@ export default function AskView({
               {chats.length === 0 && (
                 <div className="chat-empty">No conversations yet. Ask a question to start one.</div>
               )}
-              {chats.map((chat) => (
-                <div
-                  key={chat.id}
-                  className={`chat-item ${chat.active ? "active" : ""} ${renamingId === chat.id ? "renaming" : ""}`}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ id: chat.id, x: e.clientX, y: e.clientY });
-                  }}
-                >
-                  {renamingId === chat.id ? (
-                    <>
-                      <ChatIcon />
-                      <input
-                        ref={renameInputRef}
-                        className="chat-rename"
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitRename();
-                          } else if (e.key === "Escape") {
-                            e.preventDefault();
-                            renameCancelled.current = true;
-                            setRenamingId(null);
-                          }
-                        }}
-                        onBlur={() => {
-                          const cancelled = renameCancelled.current;
-                          renameCancelled.current = false;
-                          if (!cancelled) commitRename();
-                        }}
-                        aria-label="Conversation name"
-                      />
-                    </>
-                  ) : (
-                    <button
-                      className="chat-open"
-                      onClick={() => openChatItem(chat.id)}
-                      disabled={busy || chat.active}
-                      title={chat.title || "New conversation"}
+              {folders.map((folder) => {
+                const items = chats.filter((c) => (c.folder_id ?? null) === folder.id);
+                const closed = closedFolders.includes(folder.id);
+                return (
+                  <div className="folder-group" key={folder.id}>
+                    <div
+                      className="folder-row"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMenu({ id: folder.id, x: e.clientX, y: e.clientY, kind: "folder" });
+                      }}
                     >
-                      <ChatIcon />
-                      <span className="chat-name">{chat.title || "New conversation"}</span>
-                    </button>
-                  )}
-                </div>
-              ))}
+                      {folderRenaming === folder.id ? (
+                        <input
+                          ref={folderInputRef}
+                          className="folder-rename"
+                          value={folderName}
+                          onChange={(e) => setFolderName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void commitFolderRename();
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              setFolderRenaming(null);
+                            }
+                          }}
+                          onBlur={() => void commitFolderRename()}
+                          aria-label="Folder name"
+                        />
+                      ) : (
+                        <button
+                          className="folder-toggle"
+                          onClick={() => toggleFolder(folder.id)}
+                          aria-expanded={!closed}
+                          title={closed ? "Show conversations" : "Hide conversations"}
+                        >
+                          <svg
+                            className={`folder-chevron ${closed ? "closed" : ""}`}
+                            width="8"
+                            height="8"
+                            viewBox="0 0 10 10"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M2.5 1.5 6 5l-3.5 3.5"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                          <FolderIcon />
+                          <span className="folder-name">{folder.name}</span>
+                          <span className="folder-count">{items.length}</span>
+                        </button>
+                      )}
+                    </div>
+                    {!closed && items.map((chat) => chatRow(chat, true))}
+                  </div>
+                );
+              })}
+              {folders.length > 0 && unfiledChats.length > 0 && (
+                <div className="chat-group-label">Unfiled</div>
+              )}
+              {unfiledChats.map((chat) => chatRow(chat, false))}
             </div>
           </>,
           sidebarSlot,
@@ -1065,20 +1292,59 @@ export default function AskView({
             onMouseDown={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}
           >
-            <button role="menuitem" onClick={() => startRename(menu.id)}>
-              Rename
-            </button>
-            <button
-              role="menuitem"
-              className="danger"
-              onClick={() => {
-                const id = menu.id;
-                setMenu(null);
-                void removeChat(id);
-              }}
-            >
-              Delete
-            </button>
+            {menu.kind === "folder" ? (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    const folder = folders.find((f) => f.id === menu.id);
+                    setMenu(null);
+                    setFolderName(folder?.name ?? "");
+                    setFolderRenaming(menu.id);
+                  }}
+                >
+                  Rename folder
+                </button>
+                <button
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => void removeFolder(menu.id)}
+                >
+                  Delete folder
+                </button>
+              </>
+            ) : (
+              <>
+                <button role="menuitem" onClick={() => startRename(menu.id)}>
+                  Rename
+                </button>
+                <button
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    const id = menu.id;
+                    setMenu(null);
+                    void removeChat(id);
+                  }}
+                >
+                  Delete
+                </button>
+                <div className="menu-sep" />
+                <div className="menu-label">Move to</div>
+                <button role="menuitem" onClick={() => void fileChat(menu.id, null)}>
+                  No folder
+                </button>
+                {folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    role="menuitem"
+                    onClick={() => void fileChat(menu.id, folder.id)}
+                  >
+                    {folder.name}
+                  </button>
+                ))}
+              </>
+            )}
           </div>,
           document.body,
         )}

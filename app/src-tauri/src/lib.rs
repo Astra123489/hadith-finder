@@ -354,6 +354,51 @@ async fn daily_hadith(app: AppHandle, date: Option<String>) -> Result<Value, Str
 }
 
 #[tauri::command]
+async fn add_folder(app: AppHandle, name: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "add_folder", json!({ "name": name }), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn rename_folder(app: AppHandle, id: String, name: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "rename_folder", json!({ "id": id, "name": name }), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn delete_folder(app: AppHandle, id: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(&app, "delete_folder", json!({ "id": id }), 60)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn move_chat(
+    app: AppHandle,
+    id: String,
+    folder_id: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(
+            &app,
+            "move_chat",
+            json!({ "id": id, "folder_id": folder_id }),
+            60,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn api_config(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "api_config", json!({}), 60))
         .await
@@ -667,6 +712,10 @@ pub fn run() {
             delete_bookmark,
             update_bookmark,
             daily_hadith,
+            add_folder,
+            rename_folder,
+            delete_folder,
+            move_chat,
             api_config,
             set_api_config,
             set_api_key,

@@ -4,6 +4,7 @@ import type {
   AskResult,
   Book,
   Bookmark,
+  ChatFolder,
   ChatSummary,
   DailyHadith,
   ImportResult,
@@ -360,6 +361,7 @@ interface DemoChat {
   nextId: number;
   createdAt: string;
   updatedAt: string;
+  folderId?: string | null;
 }
 
 function newDemoChat(): DemoChat {
@@ -378,6 +380,7 @@ function newDemoChat(): DemoChat {
 
 let demoChats: DemoChat[] = [newDemoChat()];
 let demoActiveId = demoChats[0].id;
+let demoFolders: ChatFolder[] = [];
 
 function activeDemoChat(): DemoChat {
   return demoChats.find((c) => c.id === demoActiveId) ?? demoChats[0];
@@ -400,6 +403,7 @@ function demoChatList(): ChatSummary[] {
       created_at: c.createdAt,
       updated_at: c.updatedAt,
       active: c.id === demoActiveId,
+      folder_id: c.folderId ?? null,
     }));
 }
 
@@ -482,8 +486,32 @@ const demoApi = {
     if (!chat.title) chat.title = demoTitleFor(query);
     return Promise.resolve({ ...DEMO_RESULT, thread: demoThreadState(chat), chats: demoChatList() });
   },
-  listChats: () => Promise.resolve({ chats: demoChatList(), active: demoActiveId }),
-  threadState: () => Promise.resolve({ thread: demoThreadState(), chats: demoChatList() }),
+  listChats: () =>
+    Promise.resolve({ chats: demoChatList(), folders: [...demoFolders], active: demoActiveId }),
+  threadState: () =>
+    Promise.resolve({ thread: demoThreadState(), chats: demoChatList(), folders: [...demoFolders] }),
+  addFolder: (name: string) => {
+    const folder = {
+      id: `f${Math.random().toString(36).slice(2, 10)}`,
+      name,
+      created_at: new Date().toISOString(),
+    };
+    demoFolders = [...demoFolders, folder];
+    return Promise.resolve({ folders: [...demoFolders], folder: folder.id });
+  },
+  renameFolder: (id: string, name: string) => {
+    demoFolders = demoFolders.map((f) => (f.id === id ? { ...f, name } : f));
+    return Promise.resolve({ folders: [...demoFolders] });
+  },
+  deleteFolder: (id: string) => {
+    demoFolders = demoFolders.filter((f) => f.id !== id);
+    demoChats = demoChats.map((c) => (c.folderId === id ? { ...c, folderId: null } : c));
+    return Promise.resolve({ folders: [...demoFolders], chats: demoChatList() });
+  },
+  moveChat: (id: string, folderId: string | null) => {
+    demoChats = demoChats.map((c) => (c.id === id ? { ...c, folderId } : c));
+    return Promise.resolve({ folders: [...demoFolders], chats: demoChatList() });
+  },
   newChat: () => {
     const current = activeDemoChat();
     const chat = current.turns.length ? startDemoChat() : current;
@@ -723,9 +751,23 @@ const realApi = {
   ask: (query: string, bookIds: number[] | null, askId?: string, newThread?: boolean) =>
     invoke<AskResult>("ask", { query, bookIds, askId: askId ?? null, newThread: newThread ?? false }),
 
-  listChats: () => invoke<{ chats: ChatSummary[]; active: string | null }>("list_chats"),
+  listChats: () =>
+    invoke<{ chats: ChatSummary[]; folders: ChatFolder[]; active: string | null }>("list_chats"),
 
-  threadState: () => invoke<{ thread: ThreadState; chats: ChatSummary[] }>("thread_state"),
+  threadState: () =>
+    invoke<{ thread: ThreadState; chats: ChatSummary[]; folders: ChatFolder[] }>("thread_state"),
+
+  addFolder: (name: string) =>
+    invoke<{ folders: ChatFolder[]; folder: string }>("add_folder", { name }),
+
+  renameFolder: (id: string, name: string) =>
+    invoke<{ folders: ChatFolder[] }>("rename_folder", { id, name }),
+
+  deleteFolder: (id: string) =>
+    invoke<{ folders: ChatFolder[]; chats: ChatSummary[] }>("delete_folder", { id }),
+
+  moveChat: (id: string, folderId: string | null) =>
+    invoke<{ folders: ChatFolder[]; chats: ChatSummary[] }>("move_chat", { id, folderId }),
 
   newChat: () => invoke<{ thread: ThreadState; chats: ChatSummary[] }>("new_chat"),
 

@@ -176,6 +176,10 @@ def dispatch(method: str, params: dict):
         "delete_bookmark": _delete_bookmark,
         "update_bookmark": _update_bookmark,
         "daily_hadith": _daily_hadith,
+        "add_folder": _add_folder,
+        "rename_folder": _rename_folder,
+        "delete_folder": _delete_folder,
+        "move_chat": _move_chat,
         "daily_notify": _daily_notify,
         "api_config": _api_config,
         "set_api_config": _set_api_config,
@@ -330,6 +334,7 @@ def _create_chat() -> dict:
     import uuid
 
     chat = new_conversation(chat_id=f"c{uuid.uuid4().hex[:10]}")
+    chat["folder_id"] = None
     _chats()[chat["id"]] = chat
     _state["active_chat"] = chat["id"]
     _persist_chat(chat)
@@ -365,6 +370,72 @@ def _chat_list() -> list[dict]:
     # Before the first request the active chat is only known from the library.
     active = _state.get("active_chat") or db.get_meta(_conn(), "active_chat")
     return [{**row, "active": row["id"] == active} for row in db.list_chats(_conn())]
+
+
+def _folder_list() -> list[dict]:
+    return db.list_folders(_conn())
+
+
+def _add_folder(params):
+    """A named drawer for conversations."""
+    import uuid
+
+    name = " ".join(str(params.get("name") or "").split()) or "New folder"
+    conn = _conn()
+    folder_id = f"f{uuid.uuid4().hex[:10]}"
+    db.insert_folder(
+        conn, folder_id, name[:60], datetime.datetime.now(datetime.timezone.utc).isoformat()
+    )
+    conn.commit()
+    return {"folders": _folder_list(), "folder": folder_id}
+
+
+def _rename_folder(params):
+    folder_id = str(params.get("id") or "").strip()
+    name = " ".join(str(params.get("name") or "").split())
+    if not folder_id:
+        raise ValueError("params.id is required")
+    if not name:
+        raise ValueError("a folder needs a name")
+    conn = _conn()
+    if not db.rename_folder(conn, folder_id, name[:60]):
+        raise ValueError(f"no such folder: {folder_id}")
+    conn.commit()
+    return {"folders": _folder_list()}
+
+
+def _delete_folder(params):
+    """Removing a folder never removes the conversations inside it."""
+    folder_id = str(params.get("id") or "").strip()
+    if not folder_id:
+        raise ValueError("params.id is required")
+    conn = _conn()
+    db.delete_folder(conn, folder_id)
+    conn.commit()
+    for chat in _chats().values():
+        if chat.get("folder_id") == folder_id:
+            chat["folder_id"] = None
+    return {"folders": _folder_list(), "chats": _chat_list(), "folders": _folder_list()}
+
+
+def _move_chat(params):
+    """File a conversation under a folder, or back out of one."""
+    chat_id = str(params.get("id") or "").strip()
+    raw = params.get("folder_id")
+    folder_id = str(raw).strip() if raw not in (None, "") else None
+    if not chat_id:
+        raise ValueError("params.id is required")
+    chat = _chats().get(chat_id)
+    if chat is None:
+        raise ValueError(f"no such chat: {chat_id}")
+    conn = _conn()
+    if folder_id is not None and folder_id not in {f["id"] for f in db.list_folders(conn)}:
+        raise ValueError(f"no such folder: {folder_id}")
+    chat["folder_id"] = folder_id
+    db.save_chat(conn, chat)
+    db.set_chat_folder(conn, chat_id, folder_id)
+    conn.commit()
+    return {"chats": _chat_list(), "folders": _folder_list(), "folders": _folder_list()}
 
 
 def _chat_snapshot(chat: dict) -> dict:
@@ -449,13 +520,13 @@ def _ask(params):
 def _list_chats(_params):
     # Opening the list also settles which chat is open, so "active" is real.
     _thread()
-    return {"chats": _chat_list(), "active": _state.get("active_chat")}
+    return {"chats": _chat_list(), "folders": _folder_list(), "active": _state.get("active_chat")}
 
 
 def _thread_state(_params):
     """The open conversation as it stands, so a view can redraw without asking."""
     conv = _thread()
-    return {"thread": _chat_snapshot(conv), "chats": _chat_list()}
+    return {"thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
 def _new_chat(_params):
@@ -463,7 +534,7 @@ def _new_chat(_params):
     conv = _thread()
     if conv["turns"]:
         conv = _create_chat()
-    return {"thread": _chat_snapshot(conv), "chats": _chat_list()}
+    return {"thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
 def _open_chat(params):
@@ -475,7 +546,7 @@ def _open_chat(params):
         raise ValueError(f"no such chat: {chat_id}")
     _state["active_chat"] = chat["id"]
     _persist_chat(chat)
-    return {"thread": _chat_snapshot(chat), "chats": _chat_list()}
+    return {"thread": _chat_snapshot(chat), "chats": _chat_list(), "folders": _folder_list()}
 
 
 def _rename_chat(params):
@@ -493,7 +564,7 @@ def _rename_chat(params):
     conn = _conn()
     db.save_chat(conn, chat)
     conn.commit()
-    return {"chats": _chat_list()}
+    return {"chats": _chat_list(), "folders": _folder_list()}
 
 
 def _delete_chat(params):
@@ -509,13 +580,13 @@ def _delete_chat(params):
         _state["active_chat"] = None
     conv = _thread()
     _persist_chat(conv)
-    return {"deleted": deleted, "thread": _chat_snapshot(conv), "chats": _chat_list()}
+    return {"deleted": deleted, "thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
 def _reset_thread(_params):
     """Start a fresh conversation."""
     conv = _create_chat()
-    return {"reset": True, "thread": _chat_snapshot(conv), "chats": _chat_list()}
+    return {"reset": True, "thread": _chat_snapshot(conv), "chats": _chat_list(), "folders": _folder_list()}
 
 
 def _compact_thread(_params):
@@ -580,7 +651,7 @@ def _rewind_thread(params):
         "dropped": outcome["dropped"],
         "question": outcome["question"],
         "thread": thread_mod.snapshot(conv, info),
-        "chats": _chat_list(),
+        "chats": _chat_list(), "folders": _folder_list(),
     }
 
 

@@ -310,6 +310,39 @@ try:
     check("thread_state returns the conversation", len(state["turns"]) >= 1, len(state["turns"]))
     check("thread_state reports usage without a model", state["usage"]["ctx"] > 0, state["usage"])
 
+    ahead = call("add_folder", {"name": "  On intentions  "})
+    folder = ahead["folder"]
+    check("add_folder trims its name", ahead["folders"][0]["name"] == "On intentions", [f["name"] for f in ahead["folders"]])
+    filed = call("move_chat", {"id": first_id, "folder_id": folder})
+    check(
+        "move_chat files the conversation",
+        any(c["id"] == first_id and c["folder_id"] == folder for c in filed["chats"]),
+        [(c["id"], c["folder_id"]) for c in filed["chats"]],
+    )
+    unfiled = call("move_chat", {"id": first_id, "folder_id": None})
+    check("move_chat can unfile", not any(c["folder_id"] for c in unfiled["chats"]))
+    call("move_chat", {"id": first_id, "folder_id": folder})
+    try:
+        call("move_chat", {"id": first_id, "folder_id": "f-nope"})
+        check("move_chat rejects an unknown folder", False)
+    except SystemExit as exc:
+        check("move_chat rejects an unknown folder", "no such folder" in str(exc))
+    renamed_folder = call("rename_folder", {"id": folder, "name": "Intentions"})
+    check("rename_folder", renamed_folder["folders"][0]["name"] == "Intentions")
+    try:
+        call("rename_folder", {"id": folder, "name": "   "})
+        check("rename_folder refuses an empty name", False)
+    except SystemExit as exc:
+        check("rename_folder refuses an empty name", "needs a name" in str(exc))
+    kept = call("delete_folder", {"id": folder})
+    check(
+        "delete_folder keeps its conversations",
+        kept["folders"] == []
+        and any(c["id"] == first_id for c in kept["chats"])
+        and all(not c["folder_id"] for c in kept["chats"]),
+        [(c["id"], c["folder_id"]) for c in kept["chats"]],
+    )
+
     reset = call("reset_thread", {})
     check("reset_thread", reset["reset"] is True and reset["thread"]["turns"] == [])
     check("no suggestions without a thread", call("suggest_followups", {})["suggestions"] == [])
