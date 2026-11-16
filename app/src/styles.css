@@ -219,9 +219,10 @@ html, body, #root {
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* A focus ring you can read the text through: a soft halo rather than a band. */
 .ask-input:focus {
   border-color: var(--gold-line);
-  box-shadow: 0 0 0 3px var(--gold-soft);
+  box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.1);
 }
 .ask-input::placeholder { color: var(--text-faint); }
 
@@ -802,7 +803,7 @@ html, body, #root {
   padding: 10px 12px;
   outline: none;
 }
-.bookmark-note:focus { border-color: var(--gold-line); box-shadow: 0 0 0 3px var(--gold-soft); }
+.bookmark-note:focus { border-color: var(--gold-line); box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.1); }
 .bookmark-form-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .citation-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn-saved {
@@ -1333,9 +1334,7 @@ html, body, #root {
 .example-chip:focus-visible,
 .toggle-pill:focus-visible,
 .ctx-btn:focus-visible,
-.scope-opt:focus-visible,
-.bookmark-note:focus-visible,
-.ask-input:focus-visible {
+.scope-opt:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
