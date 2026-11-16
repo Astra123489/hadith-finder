@@ -934,7 +934,9 @@ export default function AskView({
 
         {busy && pending && (
           <div className="turn">
-            <div className="turn-q" dir="auto">{pending}</div>
+            <div className="turn-q-wrap">
+              <div className="turn-q" dir="auto">{pending}</div>
+            </div>
             <div className="card answer streaming" dir="auto">
               <div className="answer-label">Answer</div>
               {thinking && (
@@ -953,12 +955,18 @@ export default function AskView({
                 </p>
               ) : (
                 !thinking && (
-                  <p className="stream-wait">
-                    <span className="spinner" /> Searching the books and writing…
-                  </p>
+                  <>
+                    <p className="stream-wait">
+                      <span className="spinner" /> Searching the books and writing…
+                    </p>
+                    <div className="skeleton" aria-hidden="true">
+                      <span className="skeleton-line" />
+                      <span className="skeleton-line" />
+                      <span className="skeleton-line skeleton-short" />
+                    </div>
+                  </>
                 )
               )}
-              <div className="stream-note">Still writing — sources appear when the answer is finished.</div>
             </div>
           </div>
         )}
@@ -1199,7 +1207,7 @@ export default function AskView({
               type="submit"
               disabled={busy || query.trim().length < 2 || books.length === 0 || noneSelected}
             >
-              {busy ? (<><span className="spinner" /> Thinking…</>) : turns.length > 0 ? "Follow up →" : "Ask →"}
+              {busy ? (<><span className="spinner" /> Searching…</>) : turns.length > 0 ? "Follow up →" : "Ask →"}
             </button>
           </div>
         </form>

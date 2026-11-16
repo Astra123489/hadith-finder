@@ -497,15 +497,24 @@ html, body, #root {
 
 /* ---------- settings ---------- */
 
-.settings-section { padding: 20px 22px; margin-bottom: 16px; }
+.settings-section { padding: 18px 20px; margin-bottom: 12px; }
 .settings-section h2 {
   font-family: var(--font-serif);
-  font-size: 17px;
-  margin: 0 0 10px;
+  font-size: 16px;
+  margin: 0 0 8px;
   color: var(--gold);
   font-weight: 600;
 }
-.settings-section p, .settings-section li { color: var(--text-dim); font-size: 13.5px; line-height: 1.65; }
+.settings-section p, .settings-section li {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.6;
+  max-width: 72ch;
+}
+.settings-section p { margin: 0 0 8px; }
+.settings-section p:last-child { margin-bottom: 0; }
+.settings-section ul { margin: 0; padding-left: 20px; }
+.settings-section li + li { margin-top: 4px; }
 .settings-section code {
   background: #101f17;
   border: 1px solid var(--line);
@@ -765,10 +774,26 @@ html, body, #root {
 
 @keyframes blink { 50% { opacity: 0; } }
 
-.stream-note {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-faint);
+/* the wait line plus a sheen where the answer will be */
+.skeleton { display: flex; flex-direction: column; gap: 9px; margin: 2px 0 4px; }
+.skeleton-line {
+  height: 9px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(231, 220, 195, 0.05),
+    rgba(231, 220, 195, 0.13),
+    rgba(231, 220, 195, 0.05)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+.skeleton-line:nth-child(1) { width: 94%; }
+.skeleton-line:nth-child(2) { width: 80%; }
+.skeleton-line.skeleton-short { width: 52%; }
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 .parallels {
@@ -1092,7 +1117,14 @@ html, body, #root {
 }
 .suggest-chip:hover { color: var(--text); border-color: var(--gold-line); background: var(--gold-soft); }
 
-.stream-wait { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
+.stream-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 14px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
 
 .thread-composer {
   position: sticky;
@@ -1187,7 +1219,7 @@ html, body, #root {
   background: rgba(216, 160, 60, 0.07);
   border-color: rgba(216, 160, 60, 0.4);
 }
-.turn .answer.streaming { border-style: dashed; }
+/* the streaming card is the same card, so nothing shifts when the answer lands */
 
 .sources-block { margin-top: 16px; }
 .sources-head {
@@ -1542,11 +1574,18 @@ html, body, #root {
   color: var(--text-dim);
 }
 
-.setting-block { margin-top: 18px; }
-.setting-label { margin: 18px 0 7px; font-size: 12px; color: var(--text-dim); }
+/* the closing note of the model card is a footnote, not another setting */
+.local-writer > .setting-note {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.setting-block { margin-top: 16px; }
+.setting-label { margin: 16px 0 7px; font-size: 12px; color: var(--text-dim); }
 .setting-block > .setting-label:first-child { margin-top: 0; }
 .chip-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.setting-note { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-faint); }
+.setting-note { margin: 8px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-faint); }
 
 .update-row {
   display: flex;

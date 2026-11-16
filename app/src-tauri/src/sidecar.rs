@@ -76,6 +76,17 @@ impl Sidecar {
             c
         };
 
+        // Never flash a console window over the app: the bundled sidecar is a
+        // console-subsystem exe (PyInstaller) and the dev fallback is `py`, so
+        // both would otherwise open a black window on launch. Inherited handles
+        // still work, so stderr logging keeps reaching the host.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         cmd.arg(library.as_os_str())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -384,10 +384,10 @@ export default function SettingsView() {
                 {models.llm_active.gpu.vram_free_mb
                   ? ` · ${(models.llm_active.gpu.vram_free_mb / 1024).toFixed(1)} GB free`
                   : ""}{" "}
-                — answers run on the graphics card.
+
               </>
             ) : (
-              <>GPU acceleration: unavailable in this build — answers run on the CPU (slower).</>
+              <>GPU acceleration: unavailable in this build — running on the CPU.</>
             )}
             {models.onnx && (
               <>
@@ -431,8 +431,12 @@ export default function SettingsView() {
                 )}
               </div>
               <p className="setting-note">
-                {deviceHints[active.device] ?? ""} Changing this reloads the model on your next question
-                {active.auto_load ? " (or at launch)" : ""}.
+                {active.device === "cpu"
+                  ? "Weights stay in system RAM."
+                  : active.device === "gpu"
+                    ? "Every layer on the GPU — needs the model to fit in VRAM."
+                    : "GPU when this build supports it, CPU otherwise."}{" "}
+                Reloads on your next question.
               </p>
 
               <div className="setting-label">KV cache precision</div>
@@ -454,9 +458,8 @@ export default function SettingsView() {
                 ))}
               </div>
               <p className="setting-note">
-                Quantizing the K/V cache shrinks the memory the context needs — a Q8_0 or Q4_0 cache fits a
-                longer window in the same VRAM. It needs flash attention; if this llama.cpp build does not
-                support it, the app quietly falls back to F16.
+                A smaller cache fits a longer context in the same memory. Needs flash attention;
+                otherwise F16.
                 {runtime?.loaded && (
                   <>
                     {" "}Currently loaded with <strong>{runtime.kv.toUpperCase()}</strong>
@@ -476,8 +479,7 @@ export default function SettingsView() {
                 <span>
                   <strong>Load the answer model when Hadith Finder starts</strong>
                   <span className="setting-toggle-sub">
-                    The first question is then instant, at the cost of RAM from launch. Off by default —
-                    the model loads on first use instead.
+                    An instant first question, at the cost of RAM from launch. Off by default.
                   </span>
                 </span>
               </label>
@@ -524,17 +526,14 @@ export default function SettingsView() {
               <span className="ask-hint">tokens · default {models.llm_active.ctx_default}</span>
             </div>
             <p className="setting-note">
-              The context window is the room for the retrieved excerpts plus the answer. Larger
-              windows fit longer passages but use more RAM and make the first token slower; the
-              model supports up to {models.llm_active.ctx_max.toLocaleString()} tokens. Takes effect
-              on your next question.
+              Up to {models.llm_active.ctx_max.toLocaleString()} tokens. Larger fits longer passages,
+              at the cost of memory and a slower first token.
             </p>
           </div>
         )}
         <p className="setting-note">
-          Any GGUF file works — including one you already have in LM Studio or Ollama. The model is
-          loaded on this device; switching models takes effect on the next question and does not
-          require re-indexing (answers only; embeddings are separate).
+          Any GGUF works, including files from LM Studio or Ollama; switching applies to your next
+          question.
         </p>
         </div>
       </div>
@@ -542,9 +541,8 @@ export default function SettingsView() {
       <div className="card settings-section">
         <h2>Bring your own model endpoint</h2>
         <p>
-          Hadith Finder can write its answers with a model you already have access to — OpenAI,
-          OpenRouter, Groq, or a local server that speaks the same API. Searching, citations and
-          cross-references stay on this device; only the writing moves to your endpoint.
+          Write answers with a model you already have — OpenAI, OpenRouter, Groq, or any local server
+          speaking the same API. Search and citations stay on this device.
         </p>
         <div className="api-grid">
           <label className="api-field">
@@ -603,19 +601,14 @@ export default function SettingsView() {
           <p className={apiNote.ok ? "setting-ok" : "setting-error"}>{apiNote.text}</p>
         )}
         <p className="setting-note">
-          The key is encrypted with Windows DPAPI for your account and kept in a separate file beside
-          the library, so a copied or backed-up <code>library.haddb</code> never carries it. Keys are
-          sent only to the endpoint you type here.
+          The key is encrypted for your Windows account and kept beside the library, not inside it.
+          It is sent only to the endpoint above.
         </p>
       </div>
 
       <div className="card settings-section">
-        <h2>AI models — one-time download ({models ? formatMB(models.total_bytes) : "…"})</h2>
-        <p>
-          Hadith Finder is powered by three small open models that run fully locally. Downloaded once
-          into your data folder (resumable if interrupted) — they are never shared with anyone, and
-          they are free: Gemma 4 (Google, Apache-2.0) and BGE models (BAAI, MIT).
-        </p>
+        <h2>AI models</h2>
+        <p>Three small open models, downloaded once and run entirely on this device.</p>
         <div className="library-list models-list">
           {models && modelKeys.map((key) => {
             const m = models[key];
@@ -651,26 +644,15 @@ export default function SettingsView() {
           })}
         </div>
         <p className="setting-note">
-          Needs roughly 6.2 GB of free disk. When all three show “installed”, asking and highlighting
-          are fully unlocked — offline, forever.
-        </p>
-      </div>
-
-      <div className="card settings-section">
-        <h2>How answers are written</h2>
-        <p>
-          Thinking is always on: the model reasons before it answers, which is what makes “explain…”
-          and comparison questions reliable. There is no fast/careful switch to tune — instead, pick
-          which installed model writes the answer from the <strong>Model</strong> selector in the Ask tab
-          (the installed models are managed in the card above).
+          About 6.2 GB of disk, resumable if interrupted. All three installed means asking and
+          highlighting work offline.
         </p>
       </div>
 
       <div className="card settings-section">
         <h2>Hadith of the day on your desktop</h2>
         <p>
-          The day's narration can arrive as a desktop notification, outside the app window — so you
-          can read it without opening anything.
+          The day's narration can arrive as a desktop notification, without opening the app.
         </p>
         <div className="notify-row">
           <label className="notify-toggle">
@@ -703,10 +685,8 @@ export default function SettingsView() {
           <p className="setting-error">{notify.schedule_error}</p>
         )}
         <p className="setting-note">
-          Windows raises it from Task Scheduler, so Hadith Finder does not need to be open and
-          nothing keeps running in the background: a short-lived process shows the notification and
-          exits. If the computer was off at that time, Windows runs it as soon as it is back. Each
-          day reaches the desktop once.
+          Windows raises it from Task Scheduler, so the app can stay closed. A day missed while the
+          computer was off arrives when it next starts.
         </p>
       </div>
 
@@ -753,50 +733,37 @@ export default function SettingsView() {
 
       <div className="card settings-section">
         <h2>Your library</h2>
-        <p>Stored locally at:</p>
-        <p><code>{info?.library ?? "…"}</code></p>
         <p>
-          The library is a single portable file (<code>library.haddb</code>, SQLite) containing your books'
-          extracted passages and search index — never the PDFs themselves, which stay where they are.
-          Back it up by copying that file. Models live next to it in <code>models/</code>.
+          <code>{info?.library ?? "…"}</code>
         </p>
         <p>
-          If a book was imported before an extractor improvement, open <strong>Library → Rebuild</strong> on it:
-          the PDF is re-read on this device and the passages and index are regenerated.
-        </p>
-      </div>
-
-      <div className="card settings-section">
-        <h2>Text extraction (OCR)</h2>
-        <p>
-          Scanned pages, and pages whose text layer was damaged by the publisher, are re-read with
-          RapidOCR on this device. Status:{" "}
-          <strong>{info?.ocr ? (info.ocr.available ? `RapidOCR ready (mode: ${info.ocr.mode})` : "not installed — text-layer only") : "…"}</strong>
+          One portable file (<code>library.haddb</code>) holding passages and the search index — never
+          the PDFs, which stay where they are. Copy it to back it up; models sit beside it in{" "}
+          <code>models/</code>.
         </p>
         <p className="setting-note">
-          The shipped OCR model reads Latin script; Arabic pages that contain no text layer at all
-          still need an Arabic OCR pass before importing.
+          Scanned pages are re-read with RapidOCR ({""}
+          {info?.ocr ? (info.ocr.available ? `ready, ${info.ocr.mode}` : "not installed") : "…"}), Latin
+          script only. Books imported before an extractor change can be rebuilt from <strong>Library</strong>.
         </p>
       </div>
 
       <div className="card settings-section">
         <h2>Honest limitations</h2>
         <ul>
-          <li>Scanned pages are OCR'd when RapidOCR is available; the shipped model reads Latin script only.</li>
-          <li>Multi-column layouts and heavy footnotes can interleave text; citations still point to the right page.</li>
-          <li>“Same narration in other collections” compares against a bundled corpus of the five canonical collections. It is a similarity match, not a scholarly cross-reference — verify before relying on it.</li>
-          <li>Authenticity gradings are shown <em>only when the printed book states them</em> — the app never grades narrations itself.</li>
-          <li>AI answers can be wrong. Always verify against the highlighted source passage before acting on a religious matter.</li>
+          <li>Multi-column pages and heavy footnotes can interleave text; citations still point to the right page.</li>
+          <li>“Same narration in other collections” is a similarity match, not a scholarly cross-reference.</li>
+          <li>Gradings appear <em>only when the printed book states them</em> — the app never grades narrations.</li>
+          <li>Answers can be wrong. Verify against the highlighted passage before acting on a religious matter.</li>
         </ul>
       </div>
 
       <div className="card settings-section">
         <h2>License & credits</h2>
         <p>
-          Hadith Finder itself is open source. It ships without any book content — you import your own
-          PDFs. Models belong to their authors (Google DeepMind — Gemma; the abliterated Gemma build
-          is by TrevorJS; embeddings and reranking by BAAI) under their respective free licenses. Hadith texts themselves are classical works; translations may be copyrighted by their
-          publishers — use copies you're entitled to keep.
+          AGPL-3.0, and no bundled book content — you import your own PDFs. Models belong to their
+          authors (Gemma: Google DeepMind and TrevorJS; BGE: BAAI); translations may be copyrighted,
+          so use copies you're entitled to keep.
         </p>
         <p className="setting-note">Version 0.3.0 · Not affiliated with any religious authority.</p>
       </div>
