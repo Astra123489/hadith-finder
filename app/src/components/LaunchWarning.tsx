@@ -28,25 +28,27 @@ export default function LaunchWarning({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div className="warning-card" onClick={(event) => event.stopPropagation()}>
-        <div className="warning-mark" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 8.6v5.2M12 17.2v.2"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-            <path
-              d="M10.6 3.9 2.9 17.4a1.6 1.6 0 0 0 1.4 2.4h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 3.9a1.6 1.6 0 0 0-2.8 0Z"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinejoin="round"
-            />
-          </svg>
+        <div className="warning-head">
+          <div className="warning-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 8.6v5.2M12 17.2v.2"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <path
+                d="M10.6 3.9 2.9 17.4a1.6 1.6 0 0 0 1.4 2.4h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 3.9a1.6 1.6 0 0 0-2.8 0Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <h2 className="warning-title" id="launch-warning-title">
+            AI can be wrong. The book is the proof.
+          </h2>
         </div>
-        <h2 className="warning-title" id="launch-warning-title">
-          AI can be wrong. The book is the proof.
-        </h2>
         <p className="warning-lead">
           Hadith Finder writes its answers with an AI model. It can be mistaken — fluently, and in
           detail — so an answer is a starting point, never a verdict.

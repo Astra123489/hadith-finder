@@ -1773,13 +1773,20 @@ html, body, #root {
   scrollbar-color: var(--line-strong) transparent;
 }
 
+.warning-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
 .warning-mark {
+  flex: 0 0 auto;
   width: 40px;
   height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 14px;
   border-radius: var(--r-md);
   color: var(--gold);
   background: rgba(217, 164, 65, 0.12);
@@ -1787,7 +1794,7 @@ html, body, #root {
 }
 
 .warning-title {
-  margin: 0 0 10px;
+  margin: 0;
   font-family: var(--font-serif);
   font-size: 21px;
   font-weight: 400;
