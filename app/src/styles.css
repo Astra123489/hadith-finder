@@ -1140,7 +1140,19 @@ html, body, #root {
   border-top: 1px solid var(--line);
 }
 
-.chat-slot-head { display: flex; align-items: baseline; gap: 8px; padding: 0 8px 8px; }
+.chat-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 8px 8px;
+}
+
+.chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
 .chat-slot-title {
   font-family: var(--font-serif);
   font-size: 14px;
@@ -1148,13 +1160,17 @@ html, body, #root {
 }
 
 .chat-new {
-  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--text-faint);
   font-size: 16px;
   line-height: 1;
-  padding: 1px 5px;
+  padding: 0;
   border-radius: var(--r-sm);
   cursor: pointer;
 }
@@ -1653,8 +1669,7 @@ html, body, #root {
 
 /* ---------- conversation folders ---------- */
 
-.chat-new.chat-folder { font-size: 13px; padding: 2px 5px; }
-.chat-new.chat-folder svg { display: block; }
+.chat-new svg { display: block; }
 
 .folder-group { display: flex; flex-direction: column; gap: 1px; }
 

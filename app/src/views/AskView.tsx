@@ -1186,23 +1186,25 @@ export default function AskView({
           <>
             <div className="chat-slot-head">
               <span className="chat-slot-title">Conversations</span>
-              <button
-                className="chat-new chat-folder"
-                onClick={() => void createFolder()}
-                title="New folder"
-                aria-label="New folder"
-              >
-                <FolderIcon size={14} />
-              </button>
-              <button
-                className="chat-new"
-                onClick={startNewChat}
-                disabled={busy}
-                title="New conversation"
-                aria-label="New conversation"
-              >
-                +
-              </button>
+              <div className="chat-head-actions">
+                <button
+                  className="chat-new chat-folder"
+                  onClick={() => void createFolder()}
+                  title="New folder"
+                  aria-label="New folder"
+                >
+                  <FolderIcon size={13} />
+                </button>
+                <button
+                  className="chat-new"
+                  onClick={startNewChat}
+                  disabled={busy}
+                  title="New conversation"
+                  aria-label="New conversation"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <div className="chat-list">
               {chats.length === 0 && (
