@@ -459,6 +459,16 @@ def _context_size(llm=None) -> int:
     return max(256, int(size))
 
 
+def _last_citation(conv: dict) -> tuple[str | None, int | None]:
+    """The passage the reader is looking at: "this chapter", "that hadith"."""
+    for turn in reversed(conv.get("turns") or []):
+        for cite in turn.get("citations") or []:
+            chapter = str(cite["chapter"]) if cite.get("chapter") else None
+            chunk_id = cite.get("chunk_id")
+            return chapter, int(chunk_id) if chunk_id is not None else None
+    return None, None
+
+
 def _ask(params):
     query = (params.get("query") or "").strip()
     if len(query) < 2:
@@ -469,6 +479,7 @@ def _ask(params):
     ask_id = params.get("ask_id")
     from . import protocol
     from . import thread as thread_mod
+    from .intent import classify
     from .qa import MAX_EXCERPT_CHARS
 
     def on_token(text: str, phase: str = "answer") -> None:
@@ -491,6 +502,11 @@ def _ask(params):
         if not thread_mod.compact(conv, llm, notify=on_thread)["compacted"]:
             break
 
+    # Read the question once, here: it decides how many excerpts the window
+    # can afford and what shape the answer should take.
+    history_chapter, history_chunk_id = _last_citation(conv)
+    intent = classify(query, history_chapter=history_chapter)
+
     result = qa_ask(
         _conn(), query,
         book_ids=book_ids,
@@ -500,7 +516,12 @@ def _ask(params):
         on_token=on_token if ask_id else None,
         ask_id=ask_id,
         context=thread_mod.history_block(conv),
-        excerpt_chars=thread_mod.excerpt_chars(llm, conv, ctx, MAX_EXCERPT_CHARS),
+        excerpt_chars=thread_mod.excerpt_chars(
+            llm, conv, ctx, MAX_EXCERPT_CHARS, top_k=intent.top_k
+        ),
+        history_chapter=history_chapter,
+        history_chunk_id=history_chunk_id,
+        intent=intent,
     )
     thread_mod.add_turn(conv, query, result)
 

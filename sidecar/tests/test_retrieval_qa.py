@@ -59,3 +59,71 @@ def test_ask_not_found_on_empty_library(conn):
 def test_scoped_to_book_ids(indexed_conn):
     hits = hybrid_search(indexed_conn, "intentions", HashEmbedder(), book_ids=[999], pool=10)
     assert hits == []
+
+
+def test_chapter_scope_stays_inside_that_chapter(indexed_conn):
+    chapters = db.list_chapters(indexed_conn)
+    assert chapters
+    hits = hybrid_search(
+        indexed_conn, "mercy", HashEmbedder(), chapter=chapters[0], pool=10
+    )
+    rows = db.get_chunks(indexed_conn, [h.chunk_id for h in hits])
+    assert rows
+    assert all(r["chapter"] == chapters[0] for r in rows)
+
+
+def test_extra_phrasings_widen_the_search(indexed_conn):
+    hits = hybrid_search(
+        indexed_conn, "mercy", HashEmbedder(), queries=["intentions"], pool=10
+    )
+    rows = db.get_chunks(indexed_conn, [h.chunk_id for h in hits])
+    text = " ".join(r["text"] for r in rows).lower()
+    assert "mercy" in text
+    assert "intention" in text
+
+
+def test_list_request_is_routed_to_ten_excerpts(indexed_conn):
+    result = ask(
+        indexed_conn,
+        "bring me 5 hadiths about mercy",
+        book_ids=None,
+        embedder=HashEmbedder(),
+        llm=EchoProvider(),
+        reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "list"
+    assert result["intent"]["count"] == 5
+    assert result["intent"]["top_k"] == 5
+    assert result["citations"]
+
+
+def test_follow_up_uses_the_last_cited_passage(indexed_conn):
+    row = next(db.iter_book_chunks(indexed_conn, 1))
+    result = ask(
+        indexed_conn,
+        "what did that hadith say",
+        book_ids=None,
+        embedder=HashEmbedder(),
+        llm=EchoProvider(),
+        reranker=IdentityReranker(),
+        history_chunk_id=row["id"],
+    )
+    assert result["intent"]["previous"] is True
+    assert result["citations"]
+    assert result["citations"][0]["chunk_id"] == row["id"]
+
+
+def test_chapter_summary_is_scoped_to_the_named_chapter(indexed_conn):
+    chapter = next(c for c in db.list_chapters(indexed_conn) if "Mercy" in c)
+    result = ask(
+        indexed_conn,
+        "summarize the chapter on mercy",
+        book_ids=None,
+        embedder=HashEmbedder(),
+        llm=EchoProvider(),
+        reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "summarize"
+    assert result["chapter_scope"] == chapter
+    assert result["citations"]
+    assert all(cite["chapter"] == chapter for cite in result["citations"])

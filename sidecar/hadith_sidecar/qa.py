@@ -12,6 +12,12 @@ Contract:
   instead of pinning its answer to an arbitrary excerpt.
 - Each citation is cross-referenced against the canonical collections
   ("also recorded in Sahih al-Bukhari 1234") — see crossref.py.
+
+Retrieval is shaped by the question (intent.py): a request for ten
+narrations fetches ten distinct passages instead of five near-duplicates, a
+chapter summary reads the chapter in order instead of its best-matching
+lines, and a question about "this chapter" is scoped to the chapter the
+reader is actually looking at.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ import json
 import re
 
 from . import crossref, db
+from .intent import Intent, classify, match_chapter
 from .llm import count_tokens
 from .retrieval import hybrid_search
 
@@ -41,6 +48,7 @@ MAX_EXCERPT_CHARS = 2600
 _MAX_CITATION_EXCERPT = 700
 _TAG_GROUP = re.compile(r"\[([^\]]{1,40})\]")
 _TAG_INNER = re.compile(r"S(\d+)")
+_WORD = re.compile(r"[0-9A-Za-z\u0600-\u06FF]{3,}")
 
 
 def _book_titles(conn, ids: list[int]) -> dict[int, str]:
@@ -122,61 +130,204 @@ def _parallels(conn, row, titles) -> list[dict]:
     return found
 
 
-def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker,
-        top_k: int = 5, pool: int = 30,
-        on_token=None, ask_id: str | None = None,
-        context: str = "", excerpt_chars: int = MAX_EXCERPT_CHARS) -> dict:
-    if book_ids is not None and len(book_ids) == 0:
-        return {"answer": NOT_FOUND, "citations": [], "retrieved": 0,
-                "unverified": False, "scoped_empty": True,
-                "prompt_tokens": 0, "excerpt_tokens": 0}
+# --- how the question changes the answer ------------------------------------
 
-    hits = hybrid_search(conn, query, embedder, book_ids=book_ids, pool=pool)
-    if not hits:
-        return {"answer": NOT_FOUND, "citations": [], "retrieved": 0,
-                "unverified": False, "scoped_empty": False,
-                "prompt_tokens": 0, "excerpt_tokens": 0}
-
-    chunks = db.get_chunks(conn, [h.chunk_id for h in hits])
-    by_id = {r["id"]: r for r in chunks}
-
-    # Keep hit/score alignment even if a chunk row vanished between the two
-    # queries: rerank only rows we actually have, then order those same rows.
-    present = [h for h in hits if h.chunk_id in by_id]
-    scores = reranker.rerank(query, [by_id[h.chunk_id]["text"] for h in present])
-    ranked = sorted(zip(present, scores), key=lambda pair: pair[1], reverse=True)
-    chosen = [h for h, _ in ranked[:top_k]]
-
-    titles = _book_titles(conn, list({by_id[h.chunk_id]["book_id"] for h in chosen}))
-    excerpts = []
-    for i, h in enumerate(chosen):
-        excerpts.append(
-            _excerpt(titles, by_id[h.chunk_id], f"S{i + 1}", query, excerpt_chars)
+def _intent_rules(intent: Intent) -> str:
+    """One extra numbered rule, only when the question asks for that shape."""
+    if intent.kind == "list":
+        n = intent.count or intent.top_k
+        text = (
+            f"8. The reader asked for {n} narrations. Give up to {n} DISTINCT narrations, "
+            "numbered on separate lines, each with its [S#]. Never split one narration into two "
+            "entries, never repeat a narration in other words, and never invent one to reach the "
+            f"number: if the excerpts hold fewer, give what is there and say how many you found."
         )
+    elif intent.kind == "summarize":
+        text = (
+            "8. The reader asked for a summary. Open with one sentence naming what is being "
+            "summarised, then give its main themes in the order the excerpts present them, citing "
+            "each point. Say plainly which parts the excerpts do not cover."
+        )
+    elif intent.kind == "locate":
+        text = (
+            "8. The reader asked where something is. Start with the exact location from the excerpt "
+            "headers — book, chapter, page and hadith number — then the quotation."
+        )
+    else:
+        text = ""
+    if intent.novel:
+        text = (text + " " if text else "") + (
+            "The reader wants narrations they are unlikely to have seen: prefer the least familiar "
+            "of the excerpts, and never call one rare or uncommon unless the excerpt says so."
+        )
+    return text
+
+
+def _system_prompt(intent: Intent) -> str:
+    rules = _intent_rules(intent)
+    return SYSTEM_PROMPT + ("\n" + rules if rules else "")
+
+
+def _answer_budget(intent: Intent) -> int:
+    if intent.kind == "list":
+        return min(1200, 320 + 90 * intent.top_k)
+    if intent.kind == "summarize":
+        return 700
+    return 512
+
+
+def _words(text: str) -> set[str]:
+    return set(_WORD.findall(text.lower()))
+
+
+def _near_duplicate(a: set[str], b: set[str], threshold: float = 0.7) -> bool:
+    if not a or not b or not (a & b):
+        return False
+    return len(a & b) / len(a | b) >= threshold
+
+
+def _diverse(scored: list[tuple], limit: int) -> list:
+    """Take the best-ranked passages, skipping repeats of what is already in.
+
+    A ten-narration request would otherwise spend half its slots on two
+    different chunks of the same hadith, or on the same narration printed in
+    two collections.  Same book + same hadith number, or near-identical text,
+    counts as a repeat.
+    """
+    chosen: list = []
+    seen_refs: set[tuple[int, str]] = set()
+    seen_words: list[set[str]] = []
+    for row, _score in scored:
+        ref = row["hadith_ref"]
+        key = (int(row["book_id"]), str(ref)) if ref else None
+        if key is not None and key in seen_refs:
+            continue
+        words = _words(row["text"])
+        if any(_near_duplicate(words, other) for other in seen_words):
+            continue
+        chosen.append(row)
+        if key is not None:
+            seen_refs.add(key)
+        seen_words.append(words)
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
+def _sample_evenly(rows: list, count: int) -> list:
+    """A chapter's arc, not its best-matching lines: beginning, middle, end."""
+    if len(rows) <= count:
+        return list(rows)
+    step = len(rows) / count
+    return [rows[min(len(rows) - 1, int(i * step))] for i in range(count)]
+
+
+def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker,
+        top_k: int | None = None, pool: int = 30,
+        on_token=None, ask_id: str | None = None,
+        context: str = "", excerpt_chars: int = MAX_EXCERPT_CHARS,
+        history_chapter: str | None = None,
+        history_chunk_id: int | None = None,
+        intent: Intent | None = None) -> dict:
+    base = {
+        "answer": NOT_FOUND,
+        "citations": [],
+        "retrieved": 0,
+        "unverified": False,
+        "scoped_empty": False,
+        "prompt_tokens": 0,
+        "excerpt_tokens": 0,
+        "chapter_scope": None,
+    }
+    if book_ids is not None and len(book_ids) == 0:
+        plan = intent or classify(query, history_chapter=history_chapter)
+        return {**base, "scoped_empty": True, "intent": plan.as_dict()}
+
+    plan = intent or classify(query, history_chapter=history_chapter)
+    meta = {"intent": plan.as_dict()}
+
+    chapter = match_chapter(db.list_chapters(conn, book_ids), plan.chapter) if plan.chapter else None
+    meta["chapter_scope"] = chapter
+    want = max(1, int(top_k if top_k is not None else plan.top_k))
+    search_text = plan.search_text or query
+
+    # "this narration" / "that hadith": the reader is pointing at the passage
+    # already on screen, so it is pinned in rather than searched for again.
+    pinned: list = []
+    if plan.previous and history_chunk_id and not chapter:
+        pinned = db.get_chunks(conn, [int(history_chunk_id)])
+
+    hits = []
+    chapter_rows: list = []
+    if plan.kind == "summarize" and chapter:
+        chapter_rows = db.chapter_chunks(conn, chapter, book_ids)
+        chosen_rows = _sample_evenly(chapter_rows, want)
+        if not chosen_rows:
+            return {**base, **meta}
+    elif plan.kind == "summarize" and pinned:
+        chosen_rows = pinned
+    else:
+        hits = hybrid_search(
+            conn, search_text, embedder,
+            book_ids=book_ids, pool=pool, chapter=chapter, queries=plan.queries,
+        )
+        if not hits and not pinned:
+            return {**base, **meta}
+        chosen_rows = list(pinned)
+        if hits:
+            chunks = db.get_chunks(conn, [h.chunk_id for h in hits])
+            by_id = {r["id"]: r for r in chunks}
+            # Keep hit/score alignment even if a chunk row vanished between the
+            # two queries: rerank only rows we actually have, then order those
+            # same rows.
+            present = [h for h in hits if h.chunk_id in by_id]
+            scores = reranker.rerank(search_text, [by_id[h.chunk_id]["text"] for h in present])
+            ranked = sorted(zip(present, scores), key=lambda pair: pair[1], reverse=True)
+            picked = _diverse(
+                [(by_id[h.chunk_id], float(score)) for h, score in ranked], want
+            )
+            seen_ids = {row["id"] for row in chosen_rows}
+            chosen_rows = (
+                chosen_rows + [row for row in picked if row["id"] not in seen_ids]
+            )[:want]
+        if not chosen_rows:
+            return {**base, **meta}
+
+    titles = _book_titles(conn, list({row["book_id"] for row in chosen_rows}))
+    excerpts = [
+        _excerpt(titles, row, f"S{i + 1}", search_text, excerpt_chars)
+        for i, row in enumerate(chosen_rows)
+    ]
     excerpt_text = "\n".join(excerpts)
     user = "Excerpts:\n\n" + excerpt_text
     if context:
         user += "\nEarlier in this conversation:\n" + context + "\n"
     user += f"\nQuestion: {query}"
-    prompt_tokens = count_tokens(llm, SYSTEM_PROMPT + user)
+    system = _system_prompt(plan)
+    prompt_tokens = count_tokens(llm, system + user)
     excerpt_tokens = count_tokens(llm, excerpt_text)
 
-    answer = llm.generate(SYSTEM_PROMPT, user, on_token=on_token)
+    answer = llm.generate(
+        system, user, max_tokens=_answer_budget(plan), on_token=on_token,
+    )
 
     if _is_not_found(answer):
-        return {"answer": NOT_FOUND, "citations": [], "retrieved": len(hits),
-                "unverified": False, "scoped_empty": False,
-                "prompt_tokens": prompt_tokens, "excerpt_tokens": excerpt_tokens}
+        return {
+            **base, **meta,
+            "retrieved": len(hits) or len(chapter_rows) or len(chosen_rows),
+            "prompt_tokens": prompt_tokens,
+            "excerpt_tokens": excerpt_tokens,
+        }
 
     tag_numbers = _tags_in(answer)
     seen: list[int] = []
     for num in tag_numbers:
-        if 1 <= num <= len(chosen) and num not in seen:
+        if 1 <= num <= len(chosen_rows) and num not in seen:
             seen.append(num)
 
     citations = []
     for num in seen:
-        row = by_id[chosen[num - 1].chunk_id]
+        row = chosen_rows[num - 1]
         gradings = list(dict.fromkeys(r["grading"] for r in db.gradings_for(conn, row["id"])))
         citations.append({
             "chunk_id": row["id"],
@@ -196,10 +347,11 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
     return {
         "answer": answer,
         "citations": citations,
-        "retrieved": len(hits),
+        "retrieved": len(hits) or len(chapter_rows) or len(chosen_rows),
         "unverified": not citations,
         "scoped_empty": False,
         "ask_id": ask_id,
         "prompt_tokens": prompt_tokens,
         "excerpt_tokens": excerpt_tokens,
+        **meta,
     }

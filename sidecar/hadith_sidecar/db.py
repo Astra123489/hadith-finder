@@ -238,6 +238,31 @@ def count_chunks(conn, book_id: int) -> int:
     return int(row["c"])
 
 
+def list_chapters(conn, book_ids: list[int] | None = None) -> list[str]:
+    """Every chapter heading in scope, for resolving "the chapter on …"."""
+    sql = "SELECT DISTINCT chapter FROM chunks WHERE chapter IS NOT NULL AND chapter != ''"
+    params: list = []
+    if book_ids is not None:
+        if not book_ids:
+            return []
+        sql += f" AND book_id IN ({','.join('?' * len(book_ids))})"
+        params += list(book_ids)
+    return [str(r["chapter"]) for r in conn.execute(sql, params).fetchall()]
+
+
+def chapter_chunks(conn, chapter: str, book_ids: list[int] | None = None) -> list[sqlite3.Row]:
+    """One chapter in reading order — what a chapter summary is built from."""
+    sql = "SELECT * FROM chunks WHERE chapter = ?"
+    params: list = [chapter]
+    if book_ids is not None:
+        if not book_ids:
+            return []
+        sql += f" AND book_id IN ({','.join('?' * len(book_ids))})"
+        params += list(book_ids)
+    sql += " ORDER BY book_id, chunk_index"
+    return conn.execute(sql, params).fetchall()
+
+
 # ---------- gradings ----------
 
 def insert_gradings(conn, chunk_id: int, found: list[tuple[str, str]]) -> None:
