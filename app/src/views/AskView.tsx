@@ -234,6 +234,22 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+/** When a question was asked: the time alone for today, date and time before. */
+function askedAtLabel(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "";
+  const now = new Date();
+  const time = when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const today =
+    when.getFullYear() === now.getFullYear() &&
+    when.getMonth() === now.getMonth() &&
+    when.getDate() === now.getDate();
+  if (today) return time;
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  if (when.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+  return `${when.toLocaleDateString(undefined, opts)}, ${time}`;
+}
+
 interface Props {
   books: Book[];
   initialScope: number[] | null;
@@ -869,7 +885,14 @@ export default function AskView({
             <div className="turn" key={turn.id}>
               <div className="turn-q-wrap">
                 <div className="turn-q" dir="auto">{turn.question}</div>
-                <div className="turn-actions">
+                <div className="turn-q-meta">
+                  <span
+                    className="turn-time"
+                    title={new Date(turn.created_at).toLocaleString()}
+                  >
+                    {askedAtLabel(turn.created_at)}
+                  </span>
+                  <div className="turn-actions">
                   <button
                     onClick={() => copyQuestion(turn)}
                     className={copiedTurn === turn.id ? "copied" : ""}
@@ -902,6 +925,7 @@ export default function AskView({
                   >
                     <IconUndo />
                   </button>
+                  </div>
                 </div>
               </div>
               {ref && (
