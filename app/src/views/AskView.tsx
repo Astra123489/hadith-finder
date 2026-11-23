@@ -276,6 +276,8 @@ export default function AskView({
   const [modelPath, setModelPath] = useState("");
   const [modelBusy, setModelBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The turn whose cut-off answer is being finished right now.
+  const [continuing, setContinuing] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streamed, setStreamed] = useState("");
   const [thinking, setThinking] = useState("");
@@ -471,6 +473,22 @@ export default function AskView({
     setSummary(thread.summary);
     setUsage(thread.usage);
   }, []);
+
+  /** Ask the model for the rest of an answer the token limit cut off. */
+  const finishAnswer = async (turn: ThreadTurn) => {
+    if (busy || continuing !== null) return;
+    setContinuing(turn.id);
+    setError(null);
+    try {
+      const res = await api.continueAnswer(turn.id);
+      applyThread(res.thread);
+      if (res.chats) setChats(res.chats);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setContinuing(null);
+    }
+  };
 
   // The conversation outlives this view: coming back from another tab shows
   // the same thread instead of an empty page.
@@ -957,8 +975,21 @@ export default function AskView({
               </div>
               {turn.truncated && !notFound && (
                 <div className="truncated-notice" role="note">
-                  The model hit its output limit and stopped mid-answer, so this answer is
-                  incomplete. A narrower question usually gets a shorter, complete one.
+                  <span>
+                    The model hit its output limit and stopped mid-answer, so this answer is
+                    incomplete.
+                  </span>
+                  {turn.intent?.kind !== "ruling" && (
+                    <button
+                      type="button"
+                      className="continue-btn"
+                      onClick={() => finishAnswer(turn)}
+                      disabled={busy || continuing !== null}
+                      title="Ask the model for the rest of this answer"
+                    >
+                      {continuing === turn.id ? "Finishing…" : "Continue"}
+                    </button>
+                  )}
                 </div>
               )}
               {turn.notice && (

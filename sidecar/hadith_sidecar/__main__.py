@@ -16,6 +16,7 @@ from . import __version__, db
 from .embeddings import get_embedder
 from .llm import get_llm
 from .qa import ask as qa_ask
+from .qa import continue_answer as qa_continue
 from .rerank import get_reranker
 
 _state: dict = {
@@ -155,6 +156,7 @@ def dispatch(method: str, params: dict):
         "delete_book": _delete_book,
         "stats": _stats,
         "ask": _ask,
+        "continue_answer": _continue_answer,
         "thread_state": _thread_state,
         "list_chats": _list_chats,
         "new_chat": _new_chat,
@@ -552,6 +554,44 @@ def _list_chats(_params):
     # Opening the list also settles which chat is open, so "active" is real.
     _thread()
     return {"chats": _chat_list(), "folders": _folder_list(), "active": _state.get("active_chat")}
+
+
+def _continue_answer(params):
+    """Write the rest of an answer the token limit cut off.
+
+    The turn keeps its question and its citations, so the continuation stays
+    grounded in the same passages and [S#] keeps meaning what it did.
+    """
+    from . import thread as thread_mod
+
+    conv = _thread()
+    turn_id = params.get("turn_id")
+    turn = next((t for t in conv["turns"] if str(t["id"]) == str(turn_id)), None)
+    if turn is None:
+        raise ValueError(f"no such turn: {turn_id}")
+    if not turn.get("truncated"):
+        raise ValueError("this answer was not cut off")
+    if (turn.get("intent") or {}).get("kind") == "ruling":
+        # A ruling must come whole from the gate that checked its citations.
+        raise ValueError("a ruling answer is not continued; ask the question again")
+
+    llm = _llm()
+    result = qa_continue(
+        question=turn["question"],
+        partial=turn["answer"],
+        citations=turn["citations"] or [],
+        llm=llm,
+        intent=turn.get("intent"),
+    )
+    thread_mod.append_answer(
+        conv, turn["id"], result["answer"], truncated=result["truncated"]
+    )
+    _persist_chat(conv)
+    info = thread_mod.usage(llm, conv, _context_size(llm))
+    result["turn"] = turn
+    result["thread"] = thread_mod.snapshot(conv, info)
+    result["chats"] = _chat_list()
+    return result
 
 
 def _thread_state(_params):

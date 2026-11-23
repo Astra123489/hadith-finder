@@ -241,6 +241,60 @@ def _answer_budget(intent: Intent) -> int:
     return 512
 
 
+CONTINUE_SYSTEM = """You finish an answer that was cut off by the model's output limit.
+
+The excerpts and their [S#] labels are exactly the ones the first part used, so [S2] still means excerpt S2. Write ONLY the remaining text, starting at the exact word where the answer stops: no repetition, no recap of what was already said, and no preamble such as "Continuing". Match the voice, tense and structure already there, cite every factual sentence as before, use no excerpt number that is not listed, and end the answer properly."""
+
+_TAG = re.compile(r"\[S(\d+)\]")
+
+
+def _stored_excerpt(cite: dict) -> str:
+    """A cited passage, rebuilt with the [S#] label the answer already used."""
+    chapter = f" · {cite['chapter']}" if cite.get("chapter") else ""
+    ref = f" · hadith {cite['hadith_ref']}" if cite.get("hadith_ref") else ""
+    head = f"[S{cite['source_index']}] {cite.get('book_title') or 'Unknown'}{chapter}{ref}"
+    start = cite.get("page_start")
+    if isinstance(start, int):
+        end = cite.get("page_end")
+        head += f" · p. {start + 1}" if end in (None, start) else f" · pp. {start + 1}-{end + 1}"
+    return head + "\n" + (cite.get("excerpt") or "")
+
+
+def _known_tags_only(text: str, allowed: set[int]) -> str:
+    """Drop an excerpt number the reader has no card for."""
+    return _TAG.sub(lambda m: m.group(0) if int(m.group(1)) in allowed else "", text)
+
+
+def continue_answer(*, question: str, partial: str, citations: list[dict],
+                    llm, intent: dict | None = None, on_token=None) -> dict:
+    """Write the rest of an answer the token limit cut off.
+
+    The excerpts are the ones already cited, kept under their original [S#]
+    numbers, so the cards on screen stay correct. The answer budget is the
+    same one the question got, and the result says whether this part finished
+    or was cut off again.
+    """
+    spec = intent or {}
+    plan = Intent(kind=str(spec.get("kind") or "lookup"),
+                  top_k=int(spec.get("top_k") or 5))
+    excerpts = "\n".join(_stored_excerpt(c) for c in citations)
+    user = "Excerpts:\n\n" + excerpts + f"\n\nQuestion: {question}"
+    user += "\n\nAnswer so far, cut off mid-sentence:\n" + partial.strip()
+    user += "\n\nContinue from the exact point where it stops."
+    rest = llm.generate(CONTINUE_SYSTEM, user, max_tokens=_answer_budget(plan),
+                        on_token=on_token)
+    allowed = {int(c["source_index"]) for c in citations if c.get("source_index")}
+    rest = _known_tags_only(rest or "", allowed).strip()
+    merged = (partial.rstrip() + " " + rest).strip() if rest else partial.strip()
+    finish_reason = getattr(llm, "last_finish_reason", None)
+    return {
+        "answer": merged,
+        "rest": rest,
+        "finish_reason": finish_reason,
+        "truncated": finish_reason == "length",
+    }
+
+
 def _words(text: str) -> set[str]:
     return set(_WORD.findall(text.lower()))
 

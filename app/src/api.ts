@@ -6,6 +6,7 @@ import type {
   Bookmark,
   ChatFolder,
   ChatSummary,
+  ContinueResult,
   DailyHadith,
   ImportResult,
   NarrationPlace,
@@ -493,6 +494,23 @@ const demoApi = {
     if (!chat.title) chat.title = demoTitleFor(query);
     return Promise.resolve({ ...DEMO_RESULT, thread: demoThreadState(chat), chats: demoChatList() });
   },
+  continueAnswer: (turnId: number) => {
+    const chat = activeDemoChat();
+    const turn = chat.turns.find((t) => t.id === turnId);
+    if (!turn) return Promise.reject(new Error("no such turn"));
+    // The fixture's answer is never cut off, so this only keeps the preview's
+    // API shape identical to the sidecar's.
+    turn.answer = `${turn.answer.replace(/\s+$/, "")} The reward follows what was intended [S2].`;
+    turn.truncated = false;
+    chat.updatedAt = new Date().toISOString();
+    return Promise.resolve({
+      turn,
+      thread: demoThreadState(chat),
+      chats: demoChatList(),
+      truncated: false,
+      finish_reason: "stop",
+    } satisfies ContinueResult);
+  },
   listChats: () =>
     Promise.resolve({ chats: demoChatList(), folders: [...demoFolders], active: demoActiveId }),
   threadState: () =>
@@ -778,6 +796,9 @@ const realApi = {
       newThread: newThread ?? false,
       pinnedChunkIds: pinnedChunkIds ?? null,
     }),
+
+  continueAnswer: (turnId: number) =>
+    invoke<ContinueResult>("continue_answer", { turnId }),
 
   listChats: () =>
     invoke<{ chats: ChatSummary[]; folders: ChatFolder[]; active: string | null }>("list_chats"),

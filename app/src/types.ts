@@ -97,6 +97,16 @@ export interface AskResult {
   chats?: ChatSummary[];
 }
 
+/** The result of finishing an answer the token limit cut off. */
+export interface ContinueResult {
+  turn: ThreadTurn;
+  thread: ThreadState;
+  chats?: ChatSummary[];
+  /** The continuation was cut off again, so it can be continued again. */
+  truncated: boolean;
+  finish_reason?: string | null;
+}
+
 /** A saved conversation in the chat switcher. */
 /** A named drawer in the conversation rail. */
 export interface ChatFolder {

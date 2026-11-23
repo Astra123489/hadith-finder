@@ -823,6 +823,9 @@ html, body, #root {
 
 /* The model ran out of output tokens before it finished the answer. */
 .truncated-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-top: 12px;
   padding: 11px 14px;
   border-left: 2px solid rgba(217, 164, 65, 0.55);
@@ -832,6 +835,21 @@ html, body, #root {
   font-size: 12.5px;
   line-height: 1.55;
 }
+.truncated-notice span { flex: 1 1 auto; }
+.continue-btn {
+  flex: 0 0 auto;
+  border: 1px solid var(--gold-line);
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.continue-btn:hover:not(:disabled) { background: rgba(217, 164, 65, 0.24); }
+.continue-btn:disabled { opacity: 0.55; cursor: default; }
 
 /* A ruling answer reports what the books say; this says what the app is not. */
 .fatwa-notice {

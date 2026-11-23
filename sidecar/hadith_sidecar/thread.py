@@ -152,6 +152,21 @@ def add_turn(conv: dict, question: str, result: dict) -> dict:
     return turn
 
 
+def append_answer(conv: dict, turn_id, answer: str, *, truncated: bool) -> dict:
+    """Replace a turn's fragment with the finished answer (first part + rest)."""
+    try:
+        wanted = int(turn_id)
+    except (TypeError, ValueError):
+        raise ValueError("params.turn_id must be a whole number") from None
+    turn = next((t for t in conv["turns"] if t["id"] == wanted), None)
+    if turn is None:
+        raise ValueError(f"no such turn: {turn_id}")
+    turn["answer"] = answer
+    turn["truncated"] = bool(truncated)
+    conv["updated_at"] = _now()
+    return turn
+
+
 def rewind(conv: dict, turn_id) -> dict:
     """Drop one turn and everything asked after it, so it can be retried or edited.
 

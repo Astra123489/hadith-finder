@@ -106,6 +106,21 @@ async fn ask(
 }
 
 #[tauri::command]
+async fn continue_answer(app: AppHandle, turn_id: i64) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        call_blocking(
+            &app,
+            "continue_answer",
+            json!({ "turn_id": turn_id }),
+            // Another full generation on the CPU, like the original answer.
+            30 * 60,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn list_chats(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || call_blocking(&app, "list_chats", json!({}), 30))
         .await
@@ -695,6 +710,7 @@ pub fn run() {
             list_books,
             delete_book,
             ask,
+            continue_answer,
             thread_state,
             list_chats,
             new_chat,
