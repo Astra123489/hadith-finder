@@ -281,12 +281,18 @@ def find_references(text: str, *, limit: int = 2) -> tuple[tuple[str, str], ...]
     question rarely names more than two.
     """
     matches: list[tuple[int, str, str]] = []
-    for pattern, alias_group, number_group in (
-            (_REFERENCE, 1, 2), (_REFERENCE_REVERSED, 2, 1)):
+    for pattern, alias_group, number_group, forward in (
+            (_REFERENCE, 1, 2, True), (_REFERENCE_REVERSED, 2, 1, False)):
         for match in pattern.finditer(text):
             key = _ALIAS_TO_COLLECTION.get(match.group(alias_group).lower())
             if not key:
                 continue
+            if forward:
+                gap = text[match.end(alias_group):match.start(number_group)]
+                # "Tirmidhi and 1 in Bukhari": that number belongs to the next
+                # reference, not this one.
+                if re.search(r"\b(?:and|or|&)\b", gap, re.I):
+                    continue
             matches.append(
                 (match.start(), key, match.group(number_group).translate(_AR_DIGITS))
             )

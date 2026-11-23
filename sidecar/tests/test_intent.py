@@ -90,6 +90,11 @@ def test_comparison_names_the_passages():
     assert classify("What is the difference between these two hadiths?").kind == "compare"
 
 
+def test_two_reversed_references_keep_their_own_collections():
+    assert classify("3521 in Tirmidhi and 1 in Bukhari").references == (
+        ("tirmidhi", "3521"), ("bukhari", "1"))
+
+
 def test_comparison_of_authenticity_does_not_become_a_grade_verdict():
     intent = classify("Which is more authentic, Bukhari 1 or Muslim 1907?")
     assert intent.kind == "compare"

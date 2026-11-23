@@ -180,6 +180,44 @@ def test_model_refusal_becomes_the_same_ruling_silence(indexed_conn):
     assert result["notice"] == qa.NOT_A_FATWA
 
 
+@pytest.fixture()
+def two_reference_conn(conn):
+    """Two collections, so a comparison can pin one passage from each."""
+    bukhari = db.insert_book(
+        conn, title="Sahih al-Bukhari", author=None, language="en",
+        file_path="bukhari.pdf", sha256="bukhari-fixture", page_count=1,
+    )
+    db.insert_chunk(
+        conn, book_id=bukhari, chunk_index=0, page_start=0, page_end=0,
+        hadith_ref="1", chapter="Book of Revelation",
+        text="Narrated Tester: mercy is shown to the merciful.",
+        norm_text="narrated tester: mercy is shown to the merciful.", spans={},
+    )
+    muslim = db.insert_book(
+        conn, title="Sahih Muslim", author=None, language="en",
+        file_path="muslim.pdf", sha256="muslim-fixture", page_count=1,
+    )
+    db.insert_chunk(
+        conn, book_id=muslim, chunk_index=0, page_start=0, page_end=0,
+        hadith_ref="1907", chapter="Book of Faith",
+        text="Narrated Tester: the merciful receive mercy.",
+        norm_text="narrated tester: the merciful receive mercy.", spans={},
+    )
+    conn.commit()
+    return conn
+
+
+class Recording(LLMProvider):
+    name = "recording"
+
+    def __init__(self):
+        self.prompts: list[str] = []
+
+    def generate(self, system, user, **kw):
+        self.prompts.append(user)
+        return "Both passages promise mercy [S1]. They differ in wording [S2]."
+
+
 class Comparing(LLMProvider):
     name = "comparing"
 
@@ -197,6 +235,21 @@ def test_comparison_pins_both_cited_passages(indexed_conn):
     )
     assert result["intent"]["kind"] == "compare"
     assert [cite["chunk_id"] for cite in result["citations"]] == ids
+
+
+def test_two_named_references_pin_and_cite_each_passage(two_reference_conn):
+    llm = Recording()
+    result = ask(
+        two_reference_conn, "Compare Bukhari 1 and Muslim 1907", book_ids=None,
+        embedder=HashEmbedder(), llm=llm, reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "compare"
+    assert result["intent"]["references"] == [["bukhari", "1"], ["muslim", "1907"]]
+    assert [(cite["book_title"], cite["hadith_ref"]) for cite in result["citations"]] == [
+        ("Sahih al-Bukhari", "1"), ("Sahih Muslim", "1907"),
+    ]
+    assert "mercy is shown to the merciful" in llm.prompts[0]
+    assert "the merciful receive mercy" in llm.prompts[0]
 
 
 def test_comparison_of_these_without_two_passages_says_so(indexed_conn):
