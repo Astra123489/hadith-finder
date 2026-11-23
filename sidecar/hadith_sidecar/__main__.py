@@ -459,14 +459,20 @@ def _context_size(llm=None) -> int:
     return max(256, int(size))
 
 
-def _last_citation(conv: dict) -> tuple[str | None, int | None]:
-    """The passage the reader is looking at: "this chapter", "that hadith"."""
+def _last_citations(conv: dict) -> tuple[str | None, list[int]]:
+    """The passages the reader is looking at: "this chapter", "these two"."""
     for turn in reversed(conv.get("turns") or []):
-        for cite in turn.get("citations") or []:
-            chapter = str(cite["chapter"]) if cite.get("chapter") else None
-            chunk_id = cite.get("chunk_id")
-            return chapter, int(chunk_id) if chunk_id is not None else None
-    return None, None
+        cites = turn.get("citations") or []
+        if not cites:
+            continue
+        chapter = next((str(c["chapter"]) for c in cites if c.get("chapter")), None)
+        chunk_ids: list[int] = []
+        for cite in cites:
+            cid = cite.get("chunk_id")
+            if cid is not None and int(cid) not in chunk_ids:
+                chunk_ids.append(int(cid))
+        return chapter, chunk_ids
+    return None, []
 
 
 def _ask(params):
@@ -504,7 +510,7 @@ def _ask(params):
 
     # Read the question once, here: it decides how many excerpts the window
     # can afford and what shape the answer should take.
-    history_chapter, history_chunk_id = _last_citation(conv)
+    history_chapter, history_chunk_ids = _last_citations(conv)
     intent = classify(query, history_chapter=history_chapter)
 
     result = qa_ask(
@@ -520,7 +526,7 @@ def _ask(params):
             llm, conv, ctx, MAX_EXCERPT_CHARS, top_k=intent.top_k
         ),
         history_chapter=history_chapter,
-        history_chunk_id=history_chunk_id,
+        history_chunk_ids=history_chunk_ids,
         intent=intent,
     )
     thread_mod.add_turn(conv, query, result)

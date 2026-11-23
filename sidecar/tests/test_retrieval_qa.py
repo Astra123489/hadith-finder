@@ -180,6 +180,52 @@ def test_model_refusal_becomes_the_same_ruling_silence(indexed_conn):
     assert result["notice"] == qa.NOT_A_FATWA
 
 
+class Comparing(LLMProvider):
+    name = "comparing"
+
+    def generate(self, system, user, **kw):
+        return "Both passages mention mercy [S1]. They differ in wording [S2]."
+
+
+def test_comparison_pins_both_cited_passages(indexed_conn):
+    rows = list(db.iter_book_chunks(indexed_conn, 1))[:2]
+    ids = [row["id"] for row in rows]
+    result = ask(
+        indexed_conn, "Do these two narrations agree?", book_ids=None,
+        embedder=HashEmbedder(), llm=Comparing(), reranker=IdentityReranker(),
+        history_chunk_ids=ids,
+    )
+    assert result["intent"]["kind"] == "compare"
+    assert [cite["chunk_id"] for cite in result["citations"]] == ids
+
+
+def test_comparison_of_these_without_two_passages_says_so(indexed_conn):
+    result = ask(
+        indexed_conn, "Do these two narrations agree?", book_ids=None,
+        embedder=HashEmbedder(), llm=EchoProvider(), reranker=IdentityReranker(),
+    )
+    assert result["answer"] == qa.COMPARE_NEEDS_TWO
+    assert result["citations"] == []
+
+
+def test_comparison_without_history_falls_back_to_retrieval(indexed_conn):
+    result = ask(
+        indexed_conn, "compare mercy and intentions", book_ids=None,
+        embedder=HashEmbedder(), llm=EchoProvider(), reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "compare"
+    assert result["citations"]
+
+
+def test_comparison_naming_an_unheld_reference_is_not_guessed(referenced_conn):
+    result = ask(
+        referenced_conn, "Compare Tirmidhi 3521 and Bukhari 1", book_ids=None,
+        embedder=HashEmbedder(), llm=Comparing(), reranker=IdentityReranker(),
+    )
+    assert result["answer"] == NOT_FOUND
+    assert result["citations"] == []
+
+
 def test_bare_collection_reference_resolves_to_its_passage(referenced_conn):
     result = ask(
         referenced_conn, "What is the authenticity of Tirmidhi 3521?", book_ids=None,

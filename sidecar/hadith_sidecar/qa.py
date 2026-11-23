@@ -51,6 +51,10 @@ _MAX_CITATION_EXCERPT = 700
 # books print. When none does, the app says so instead of reasoning towards a
 # verdict — and every ruling answer carries the same notice.
 RULING_NOT_FOUND = "The loaded books do not state a ruling on this."
+COMPARE_NEEDS_TWO = (
+    "There are not two passages on screen to compare. Ask about a narration first, "
+    "or name the two references (for example \"Bukhari 1 and Muslim 1907\")."
+)
 NOT_A_FATWA = (
     "This is a reading aid, not a fatwa: it reports only what the loaded books state. "
     "Ask a qualified scholar about your own situation."
@@ -206,6 +210,14 @@ def _intent_rules(intent: Intent) -> str:
             "ruling, never extend it past what the excerpt says, and never give a verdict in your "
             "own voice. If no excerpt states a ruling, reply exactly: \"" + RULING_NOT_FOUND + "\""
         )
+    elif intent.kind == "compare":
+        text = (
+            "8. The reader asked you to compare these passages. Compare them point by point — "
+            "wording, chain of narration, and what each says or leaves out — citing each claim. "
+            "Say where they agree and where they differ, and report each passage's own grading "
+            "when it prints one. Never declare one narration correct, stronger, or more authentic: "
+            "if asked which is more authentic, report what each source says and stop there."
+        )
     else:
         text = ""
     if intent.novel:
@@ -224,7 +236,7 @@ def _system_prompt(intent: Intent) -> str:
 def _answer_budget(intent: Intent) -> int:
     if intent.kind == "list":
         return min(1200, 320 + 90 * intent.top_k)
-    if intent.kind in ("summarize", "explain", "ruling"):
+    if intent.kind in ("summarize", "explain", "ruling", "compare"):
         return 700
     return 512
 
@@ -281,6 +293,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         context: str = "", excerpt_chars: int = MAX_EXCERPT_CHARS,
         history_chapter: str | None = None,
         history_chunk_id: int | None = None,
+        history_chunk_ids: list[int] | None = None,
         intent: Intent | None = None) -> dict:
     base = {
         "answer": NOT_FOUND,
@@ -310,21 +323,39 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
     # hadith reference. If the library does not hold it, say so instead of
     # letting keyword search wander into unrelated passages.
     reference_rows: list = []
-    if plan.reference:
-        collection, number = plan.reference
-        reference_rows = db.find_reference_chunks(
+    references = plan.references or ((plan.reference,) if plan.reference else ())
+    for collection, number in references:
+        rows = db.find_reference_chunks(
             conn, COLLECTION_ALIASES.get(collection, ()), number, book_ids
         )
-        if not reference_rows:
+        if not rows:
             return {**base, **meta, "answer": silence}
+        seen_refs = {row["id"] for row in reference_rows}
+        reference_rows += [row for row in rows if row["id"] not in seen_refs]
 
-    # "this narration" / "that hadith": the reader is pointing at the passage
-    # already on screen, so it is pinned in rather than searched for again.
+    # The passages the last answer cited, in citation order: "this narration"
+    # needs the first, a comparison needs the first two.
+    history_ids: list[int] = []
+    for value in list(history_chunk_ids or []) + (
+            [history_chunk_id] if history_chunk_id is not None else []):
+        if value is not None and int(value) not in history_ids:
+            history_ids.append(int(value))
+
     pinned: list = list(reference_rows)
-    if plan.previous and history_chunk_id and not chapter:
-        extra = db.get_chunks(conn, [int(history_chunk_id)])
+    if plan.kind == "compare" and history_ids:
+        extra = db.get_chunks(conn, history_ids[:2])
         seen = {row["id"] for row in pinned}
         pinned += [row for row in extra if row["id"] not in seen]
+    elif plan.previous and history_ids and not chapter:
+        extra = db.get_chunks(conn, [history_ids[0]])
+        seen = {row["id"] for row in pinned}
+        pinned += [row for row in extra if row["id"] not in seen]
+
+    # "Do these two agree" with only one passage on screen has no honest
+    # answer: searching for two unrelated passages would invent the
+    # comparison the reader thinks they are looking at.
+    if plan.kind == "compare" and plan.previous and len(pinned) < 2:
+        return {**base, **meta, "answer": COMPARE_NEEDS_TWO}
 
     hits = []
     chapter_rows: list = []

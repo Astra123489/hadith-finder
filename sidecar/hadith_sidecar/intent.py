@@ -155,6 +155,20 @@ _RULING = re.compile(
     r"|حرام\s+أم\s+حلال|حرام\s+ام\s+حلال)",
     re.I,
 )
+# "Do these two narrations agree?": the reader is holding two passages
+# side by side and wants their wording, chain and content compared — not a
+# winner picked.
+_COMPARE = re.compile(
+    r"\bcompare\b|\bcomparison\b|\bdifference(?:s)?\s+between\b"
+    r"|\bdo\s+(?:these|they|the\s+two|both)\b[^?.!]{0,70}"
+    r"\b(?:agree|match|differ|contradict|conflict)\b"
+    r"|\bare\s+(?:these|they|the\s+two|both)\b[^?.!]{0,70}"
+    r"\b(?:the\s+same|identical|different|consistent)\b"
+    r"|\bcontradict(?:ion|ory)?\b|\bhow\s+do\s+(?:these|they)\s+(?:differ|compare)\b"
+    r"|\bwhich\s+is\s+more\s+(?:authentic|reliable|correct)\b"
+    r"|(?:قارن|الفرق\s+بين|هل\s+يتفق|هل\s+تتفق)",
+    re.I,
+)
 _CHAPTER_PHRASE = re.compile(
     r"\b(?:chapter|book|section|kitab|bab)\s+"
     r"(?:on|about|of|titled|called|named|entitled)\s+"
@@ -174,7 +188,9 @@ _THIS_REF = re.compile(
     r"|\b(?:that|the above|the same)\s+(?:narration|hadith|passage)\b"
     r"|\b(?:who|what)\s+(?:said|narrated|reported|related)\s+this\b"
     r"|\bwhere\s+(?:is|was)\s+it\b"
-    r"|(?:هذا\s+الحديث|هذا\s+النص)",
+    r"|\b(?:these|they|both|the\s+two)\b[^?.!]{0,24}"
+    r"\b(?:narrations?|hadiths?|passages?|versions?)\b"
+    r"|(?:هذا\s+الحديث|هذا\s+النص|هذين\s+الحديثين)",
     re.I,
 )
 
@@ -214,7 +230,7 @@ _SCAFFOLD = [
 class Intent:
     """How to search and how to answer, derived from one question."""
 
-    kind: str = "lookup"           # lookup | list | summarize | locate | grade | narrator | explain | ruling
+    kind: str = "lookup"           # lookup | list | summarize | locate | grade | narrator | explain | ruling | compare
     count: int | None = None       # narrations the reader asked for
     chapter: str | None = None     # chapter hint, resolved by the caller
     novel: bool = False            # "not common", "I don't know these"
@@ -223,6 +239,7 @@ class Intent:
     top_k: int = DEFAULT_K
     previous: bool = False         # "this narration", "that hadith"
     reference: tuple[str, str] | None = None  # (collection key, hadith number)
+    references: tuple[tuple[str, str], ...] = ()  # up to two, in reading order
 
     def as_dict(self) -> dict:
         return {
@@ -233,6 +250,7 @@ class Intent:
             "top_k": self.top_k,
             "previous": self.previous,
             "reference": list(self.reference) if self.reference else None,
+            "references": [list(ref) for ref in self.references],
         }
 
 
@@ -256,20 +274,35 @@ def _count(text: str) -> int | None:
     return None
 
 
+def find_references(text: str, *, limit: int = 2) -> tuple[tuple[str, str], ...]:
+    """Every collection and number in the question, in reading order.
+
+    "Compare Bukhari 1 and Muslim 1907" names two passages to pin; a single
+    question rarely names more than two.
+    """
+    matches: list[tuple[int, str, str]] = []
+    for pattern, alias_group, number_group in (
+            (_REFERENCE, 1, 2), (_REFERENCE_REVERSED, 2, 1)):
+        for match in pattern.finditer(text):
+            key = _ALIAS_TO_COLLECTION.get(match.group(alias_group).lower())
+            if not key:
+                continue
+            matches.append(
+                (match.start(), key, match.group(number_group).translate(_AR_DIGITS))
+            )
+    found: list[tuple[str, str]] = []
+    for _, key, number in sorted(matches):
+        if (key, number) not in found:
+            found.append((key, number))
+        if len(found) >= limit:
+            break
+    return tuple(found)
+
+
 def find_reference(text: str) -> tuple[str, str] | None:
     """The collection and number in a question like "authenticity of Tirmidhi 3521"."""
-    match = _REFERENCE.search(text)
-    if match:
-        alias, number = match.group(1), match.group(2)
-    else:
-        match = _REFERENCE_REVERSED.search(text)
-        if not match:
-            return None
-        number, alias = match.group(1), match.group(2)
-    key = _ALIAS_TO_COLLECTION.get(alias.lower())
-    if not key:
-        return None
-    return key, number.translate(_AR_DIGITS)
+    found = find_references(text, limit=1)
+    return found[0] if found else None
 
 
 def _chapter_hint(text: str, history_chapter: str | None) -> str | None:
@@ -311,6 +344,10 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
 
     if _SUMMARIZE.search(text):
         kind = "summarize"
+    elif _COMPARE.search(text):
+        # "do these two narrations agree" names a count, but it is not a
+        # request for two narrations — the comparison words decide.
+        kind = "compare"
     elif asks_for_many and (
             _LIST.search(text) or _COUNT_AFTER_HADITH.search(text) or _COUNT_AFTER_ME.search(text)):
         kind = "list"
@@ -335,6 +372,8 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
         top_k = min(10, max(4, count or DEFAULT_SUMMARY))
     elif kind == "ruling":
         top_k = 6
+    elif kind == "compare":
+        top_k = 2
     else:
         top_k = DEFAULT_K
 
@@ -342,6 +381,7 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
     search_text = text if _topicless(core) else core
     queries = (text,) if search_text != text and kind != "list" else ()
 
+    references = find_references(text)
     return Intent(
         kind=kind,
         count=count,
@@ -351,7 +391,8 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
         queries=queries,
         top_k=top_k,
         previous=bool(_THIS_REF.search(text)),
-        reference=find_reference(text),
+        reference=references[0] if references else None,
+        references=references,
     )
 
 
