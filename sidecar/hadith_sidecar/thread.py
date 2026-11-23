@@ -136,6 +136,9 @@ def add_turn(conv: dict, question: str, result: dict) -> dict:
         # of answer this was and, for a ruling, that it is not a fatwa.
         "intent": result.get("intent"),
         "notice": result.get("notice"),
+        # The source the reader clicked for this question, so reopening the
+        # chat still shows which hadith it was about.
+        "reference": result.get("reference"),
         "created_at": _now(),
     }
     conv["next_id"] += 1

@@ -406,6 +406,20 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
             return {**base, **meta, "answer": silence}
 
     titles = _book_titles(conn, list({row["book_id"] for row in chosen_rows}))
+    # Keep the source the reader pointed at with the answer, so the
+    # conversation can still say which hadith a follow-up was about after the
+    # composer chip is gone. Only when the passage actually made it in.
+    chosen_ids = {row["id"] for row in chosen_rows}
+    if requested_rows and requested_rows[0]["id"] in chosen_ids:
+        first = requested_rows[0]
+        meta["reference"] = {
+            "chunk_id": first["id"],
+            "book_title": titles.get(first["book_id"], "Unknown"),
+            "chapter": first["chapter"],
+            "hadith_ref": first["hadith_ref"],
+            "page_start": first["page_start"],
+            "page_end": first["page_end"],
+        }
     excerpts = [
         _excerpt(titles, row, f"S{i + 1}", search_text, excerpt_chars)
         for i, row in enumerate(chosen_rows)

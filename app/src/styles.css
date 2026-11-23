@@ -290,6 +290,33 @@ html, body, #root {
 }
 .ref-chip-x:hover { background: rgba(217, 164, 65, 0.22); }
 
+/* The source a past question was asked about, kept beside its answer. */
+.turn-ref {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 2px 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.turn-ref-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.turn-ref-tag {
+  border: 1px solid var(--gold-line);
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.turn-ref-tag:hover { background: rgba(217, 164, 65, 0.28); }
+.turn-ref-name { color: var(--text-dim); }
+
 .ask-row {
   display: flex;
   align-items: center;

@@ -66,6 +66,16 @@ export interface TurnIntent {
   previous: boolean;
 }
 
+/** The source a reader pointed at with "Ask about this". */
+export interface TurnReference {
+  chunk_id: number;
+  book_title: string;
+  chapter: string | null;
+  hadith_ref: string | null;
+  page_start: number;
+  page_end: number;
+}
+
 export interface AskResult {
   answer: string;
   citations: Citation[];
@@ -75,6 +85,8 @@ export interface AskResult {
   scoped_empty: boolean;
   /** Present when the answer concerned a ruling; shown as-is. */
   notice?: string | null;
+  /** The source this question was asked about, when one was picked. */
+  reference?: TurnReference | null;
   intent?: TurnIntent;
   /** The whole conversation after this answer, when the sidecar returns it. */
   thread?: ThreadState;
@@ -122,6 +134,8 @@ export interface ThreadTurn {
   unverified: boolean;
   /** "This is a reading aid, not a fatwa" on a ruling answer. */
   notice?: string | null;
+  /** The source the reader clicked "Ask about this" on, if any. */
+  reference?: TurnReference | null;
   intent?: TurnIntent | null;
   created_at: string;
 }

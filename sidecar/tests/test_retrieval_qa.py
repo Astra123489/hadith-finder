@@ -1,6 +1,6 @@
 import pytest
 
-from hadith_sidecar import db, qa
+from hadith_sidecar import db, qa, thread
 from hadith_sidecar.embeddings import HashEmbedder
 from hadith_sidecar.ingest import ingest_pdf
 from hadith_sidecar.retrieval import hybrid_search
@@ -262,6 +262,26 @@ def test_explicitly_referenced_source_is_pinned_first(two_reference_conn):
     )
     assert result["citations"][0]["chunk_id"] == target["id"]
     assert "the merciful receive mercy" in llm.prompts[0]
+
+
+def test_referenced_source_stays_with_the_turn(two_reference_conn):
+    target = db.find_reference_chunks(two_reference_conn, ("muslim",), "1907")[0]
+    result = ask(
+        two_reference_conn, "What is its chain of narration?", book_ids=None,
+        embedder=HashEmbedder(), llm=Recording(), reranker=IdentityReranker(),
+        pinned_chunk_ids=[target["id"]],
+    )
+    assert result["reference"] == {
+        "chunk_id": target["id"],
+        "book_title": "Sahih Muslim",
+        "chapter": "Book of Faith",
+        "hadith_ref": "1907",
+        "page_start": 0,
+        "page_end": 0,
+    }
+    conv = {"next_id": 1, "turns": [], "title": "", "updated_at": ""}
+    turn = thread.add_turn(conv, "What is its chain of narration?", result)
+    assert turn["reference"] == result["reference"]
 
 
 def test_referenced_source_that_no_longer_exists_is_not_guessed(indexed_conn):

@@ -861,6 +861,10 @@ export default function AskView({
             turn.answer.startsWith(RULING_NOT_FOUND_PREFIX);
           const prefix = `citation-t${turn.id}`;
           const latest = index === turns.length - 1;
+          const ref = turn.reference ?? null;
+          const refCite = ref
+            ? turn.citations.find((c) => c.chunk_id === ref.chunk_id)
+            : undefined;
           return (
             <div className="turn" key={turn.id}>
               <div className="turn-q-wrap">
@@ -900,6 +904,29 @@ export default function AskView({
                   </button>
                 </div>
               </div>
+              {ref && (
+                <div className="turn-ref">
+                  <span className="turn-ref-label">Asked about</span>
+                  {refCite && (
+                    <button
+                      type="button"
+                      className="turn-ref-tag"
+                      title={citationLabel(refCite)}
+                      onClick={() => {
+                        document
+                          .getElementById(`${prefix}-${refCite.source_index}`)
+                          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                    >
+                      S{refCite.source_index}
+                    </button>
+                  )}
+                  <span className="turn-ref-name">
+                    {ref.book_title}
+                    {ref.hadith_ref ? ` · Hadith ${ref.hadith_ref}` : ` · p. ${ref.page_start + 1}`}
+                  </span>
+                </div>
+              )}
               <div className={`card answer ${notFound ? "notfound" : ""}`} dir="auto">
                 <div className="answer-label">Answer</div>
                 <p>{renderedAnswer(turn.answer, turn.citations, prefix)}</p>
