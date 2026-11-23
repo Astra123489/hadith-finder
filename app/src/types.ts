@@ -83,6 +83,10 @@ export interface AskResult {
   /** The model answered without citing an excerpt. */
   unverified: boolean;
   scoped_empty: boolean;
+  /** The token limit stopped the model mid-answer. */
+  truncated?: boolean;
+  /** "stop" for a finished answer, "length" when the cap cut it off. */
+  finish_reason?: string | null;
   /** Present when the answer concerned a ruling; shown as-is. */
   notice?: string | null;
   /** The source this question was asked about, when one was picked. */
@@ -132,6 +136,8 @@ export interface ThreadTurn {
   answer: string;
   citations: Citation[];
   unverified: boolean;
+  /** The model stopped at its token limit, so the answer is incomplete. */
+  truncated?: boolean;
   /** "This is a reading aid, not a fatwa" on a ruling answer. */
   notice?: string | null;
   /** The source the reader clicked "Ask about this" on, if any. */

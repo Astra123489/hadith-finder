@@ -821,6 +821,18 @@ html, body, #root {
   line-height: 1.5;
 }
 
+/* The model ran out of output tokens before it finished the answer. */
+.truncated-notice {
+  margin-top: 12px;
+  padding: 11px 14px;
+  border-left: 2px solid rgba(217, 164, 65, 0.55);
+  background: rgba(217, 164, 65, 0.07);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
 /* A ruling answer reports what the books say; this says what the app is not. */
 .fatwa-notice {
   margin-top: 12px;

@@ -441,6 +441,10 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         system, user, max_tokens=_answer_budget(plan),
         on_token=None if sensitive else on_token,
     )
+    # A fragment is worse than a short answer when it is presented as whole:
+    # say why the model stopped so the card can warn that it stopped early.
+    finish_reason = getattr(llm, "last_finish_reason", None)
+    truncated = finish_reason == "length"
 
     if plan.kind == "ruling" and (
             not (answer or "").strip()
@@ -509,6 +513,8 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         "citations": citations,
         "retrieved": len(hits) or len(chapter_rows) or len(chosen_rows),
         "unverified": not citations,
+        "finish_reason": finish_reason,
+        "truncated": truncated,
         "scoped_empty": False,
         "ask_id": ask_id,
         "prompt_tokens": prompt_tokens,

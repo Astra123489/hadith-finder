@@ -132,6 +132,50 @@ def test_uncited_answer_is_flagged_not_pinned_to_excerpt_one(indexed_conn):
     assert result["citations"] == []
 
 
+class Truncated(LLMProvider):
+    """Stops at the token cap mid-sentence, as a long reasoning trace did."""
+
+    name = "truncated"
+    last_finish_reason = "length"
+
+    def generate(self, system, user, **kw):
+        return "Mercy is mentioned in this narration [S1], and it is"
+
+
+def test_cut_off_answer_is_flagged_in_the_result(indexed_conn):
+    result = qa.ask(
+        indexed_conn, "mercy", book_ids=None,
+        embedder=HashEmbedder(), llm=Truncated(), reranker=IdentityReranker(), top_k=3,
+    )
+    assert result["truncated"] is True
+    assert result["finish_reason"] == "length"
+
+
+class Complete(LLMProvider):
+    name = "complete"
+    last_finish_reason = "stop"
+
+    def generate(self, system, user, **kw):
+        return "Mercy is mentioned in this narration [S1]."
+
+
+def test_finished_answer_is_not_flagged_as_truncated(indexed_conn):
+    result = qa.ask(
+        indexed_conn, "mercy", book_ids=None,
+        embedder=HashEmbedder(), llm=Complete(), reranker=IdentityReranker(), top_k=3,
+    )
+    assert result["truncated"] is False
+    assert result["finish_reason"] == "stop"
+
+
+def test_transcript_keeps_the_truncation_flag():
+    from hadith_sidecar import thread
+
+    conv = thread.new_conversation()
+    thread.add_turn(conv, "Summarize this", {"answer": "a fragment", "truncated": True})
+    assert thread.snapshot(conv, {})["turns"][0]["truncated"] is True
+
+
 def test_empty_scope_searches_nothing(indexed_conn):
     result = qa.ask(
         indexed_conn, "mercy", book_ids=[],

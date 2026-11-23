@@ -132,6 +132,9 @@ def add_turn(conv: dict, question: str, result: dict) -> dict:
         "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "unverified": bool(result.get("unverified")),
+        # The model hit its token cap, so the answer shown is a fragment; a
+        # reopened chat must still say so.
+        "truncated": bool(result.get("truncated")),
         # Kept with the turn so a reopened conversation still shows what kind
         # of answer this was and, for a ruling, that it is not a fatwa.
         "intent": result.get("intent"),

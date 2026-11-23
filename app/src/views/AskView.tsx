@@ -931,6 +931,12 @@ export default function AskView({
                 <div className="answer-label">Answer</div>
                 <p>{renderedAnswer(turn.answer, turn.citations, prefix)}</p>
               </div>
+              {turn.truncated && !notFound && (
+                <div className="truncated-notice" role="note">
+                  The model hit its output limit and stopped mid-answer, so this answer is
+                  incomplete. A narrower question usually gets a shorter, complete one.
+                </div>
+              )}
               {turn.notice && (
                 <div className="fatwa-notice" role="note">
                   {turn.notice}

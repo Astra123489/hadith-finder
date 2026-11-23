@@ -245,6 +245,10 @@ def count_tokens(provider, text: str) -> int:
 
 class LLMProvider:
     name = "abstract"
+    # Why generation ended: "stop" for a deliberate ending, "length" when the
+    # token cap cut it off. Set by generate() so callers can tell a complete
+    # answer from a fragment.
+    last_finish_reason: str | None = None
 
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
                  temperature: float = 0.2, on_token=None) -> str:
@@ -342,6 +346,7 @@ class OpenAIProvider(LLMProvider):
             method="POST",
         )
         pieces: list[str] = []
+        finish: str | None = None
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 for raw in response:
@@ -358,6 +363,7 @@ class OpenAIProvider(LLMProvider):
                     choices = parsed.get("choices") or []
                     if not choices:
                         continue
+                    finish = choices[0].get("finish_reason") or finish
                     piece = (choices[0].get("delta") or {}).get("content") or ""
                     if piece:
                         pieces.append(piece)
@@ -367,6 +373,7 @@ class OpenAIProvider(LLMProvider):
             raise RuntimeError(self._explain(error)) from None
         except urllib.error.URLError as error:
             raise RuntimeError(f"could not reach the endpoint: {error.reason}") from None
+        self.last_finish_reason = finish
         return "".join(pieces).strip()
 
 
@@ -595,6 +602,14 @@ class LlamaCppProvider(LLMProvider):
         return ""
 
     @staticmethod
+    def _finish_of(out) -> str | None:
+        """The finish reason llama.cpp reported for this response or chunk."""
+        try:
+            return out["choices"][0].get("finish_reason")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return None
+
+    @staticmethod
     def _generation_budget(max_tokens: int, thinking: bool) -> int:
         """Total tokens to generate: the answer's budget plus reasoning room."""
         return max_tokens + REASONING_TOKENS if thinking else max_tokens
@@ -605,6 +620,7 @@ class LlamaCppProvider(LLMProvider):
         if on_token is None:
             out = self._completion(system, user, max_tokens=max_tokens,
                                    temperature=temperature, stream=False)
+            self.last_finish_reason = self._finish_of(out)
             raw = self._text_of(out)
             stream = ThoughtStream()
             events = stream.feed(raw) + stream.flush()
@@ -623,12 +639,15 @@ class LlamaCppProvider(LLMProvider):
                 except Exception:
                     pass
 
+        finish: str | None = None
         for part in self._completion(system, user, max_tokens=max_tokens,
                                      temperature=temperature, stream=True):
+            finish = self._finish_of(part) or finish
             delta = self._delta_of(part)
             if delta:
                 emit(stream.feed(delta))
         emit(stream.flush())
+        self.last_finish_reason = finish
         return self._strip_think("".join(answer).strip())
 
     @staticmethod

@@ -56,3 +56,40 @@ def test_thinking_generation_still_produces_the_full_answer():
     assert seen["max_tokens"] == 700 + REASONING_TOKENS
     assert len(answer.split()) == 300
     assert "weighing" not in answer
+
+
+def _provider_that_returns(text: str, finish_reason: str | None):
+    def completion(system, user, *, max_tokens, temperature, stream):
+        return {"choices": [{"text": text, "finish_reason": finish_reason}]}
+
+    provider = object.__new__(LlamaCppProvider)
+    provider.thinking = False
+    provider._completion = completion
+    return provider
+
+
+def test_a_cut_off_generation_reports_length():
+    provider = _provider_that_returns("A summary that stops mid", "length")
+    assert provider.generate("system", "user", max_tokens=64) == "A summary that stops mid"
+    assert provider.last_finish_reason == "length"
+
+
+def test_a_finished_generation_reports_stop():
+    provider = _provider_that_returns("A complete answer.", "stop")
+    provider.generate("system", "user")
+    assert provider.last_finish_reason == "stop"
+
+
+def test_streaming_keeps_the_finish_reason_from_the_last_chunk():
+    def completion(system, user, *, max_tokens, temperature, stream):
+        yield {"choices": [{"delta": {"content": "A partia"}, "finish_reason": None}]}
+        yield {"choices": [{"delta": {"content": "l answer"}, "finish_reason": None}]}
+        yield {"choices": [{"delta": {}, "finish_reason": "length"}]}
+
+    provider = object.__new__(LlamaCppProvider)
+    provider.thinking = False
+    provider._completion = completion
+    seen: list[str] = []
+    assert provider.generate("system", "user", on_token=lambda t, p: seen.append(t)) == "A partial answer"
+    assert seen == ["A partia", "l answer"]
+    assert provider.last_finish_reason == "length"
