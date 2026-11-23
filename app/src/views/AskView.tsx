@@ -32,6 +32,8 @@ const EXAMPLES = [
 ];
 
 const NOT_FOUND_PREFIX = "I could not find this in the loaded books.";
+/* A ruling question with no stated ruling ends the same quiet way. */
+const RULING_NOT_FOUND_PREFIX = "The loaded books do not state a ruling on this.";
 const RING = 2 * Math.PI * 12;
 
 interface ChatRowProps {
@@ -835,7 +837,9 @@ export default function AskView({
         )}
 
         {turns.map((turn, index) => {
-          const notFound = turn.answer.startsWith(NOT_FOUND_PREFIX);
+          const notFound =
+            turn.answer.startsWith(NOT_FOUND_PREFIX) ||
+            turn.answer.startsWith(RULING_NOT_FOUND_PREFIX);
           const prefix = `citation-t${turn.id}`;
           const latest = index === turns.length - 1;
           return (
@@ -881,6 +885,11 @@ export default function AskView({
                 <div className="answer-label">Answer</div>
                 <p>{renderedAnswer(turn.answer, turn.citations, prefix)}</p>
               </div>
+              {turn.notice && (
+                <div className="fatwa-notice" role="note">
+                  {turn.notice}
+                </div>
+              )}
               {turn.unverified && !notFound && (
                 <div className="error-banner">
                   The model answered without citing a passage. Treat this answer as unsourced until you

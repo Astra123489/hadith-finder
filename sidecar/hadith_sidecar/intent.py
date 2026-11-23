@@ -106,6 +106,21 @@ _EXPLAIN = re.compile(
     r"|(?:ما\s+معنى|معنى\s+الحديث|اشرح|شرح\s+الحديث|فسر|تفسير\s+الحديث)",
     re.I,
 )
+# Halal/haram questions are a different kind of answer: the reader wants a
+# ruling, and only a ruling the book prints may be reported. Matched broadly
+# enough to catch "is music haram" and "can I eat…", narrowly enough that
+# "hadiths about halal earnings" stays a list request.
+_RULING = re.compile(
+    r"\b(?:is|are)\s+(?:it|this|that|[\w' -]{1,40})\s+"
+    r"(?:halal|haraam|haram|permissible|forbidden|impermissible|prohibited|unlawful|allowed)\b"
+    r"|\bhalal\s+or\s+haram\b|\bharam\s+or\s+halal\b|\bis\s+it\s+(?:a\s+)?sin\b"
+    r"|\bwhat\s+is\s+the\s+ruling\s+on\b|\bruling\s+on\b"
+    r"|\bcan\s+(?:i|we|a\s+muslim)\b[^?.!]{0,70}"
+    r"\b(?:eat|drink|wear|use|do|take|earn|sell|buy|marry|pray|work|invest|listen)\b"
+    r"|(?:هل\s+يجوز|ما\s+حكم|حكم\s+ال|حلال\s+أم\s+حرام|حلال\s+ام\s+حرام"
+    r"|حرام\s+أم\s+حلال|حرام\s+ام\s+حلال)",
+    re.I,
+)
 _CHAPTER_PHRASE = re.compile(
     r"\b(?:chapter|book|section|kitab|bab)\s+"
     r"(?:on|about|of|titled|called|named|entitled)\s+"
@@ -165,7 +180,7 @@ _SCAFFOLD = [
 class Intent:
     """How to search and how to answer, derived from one question."""
 
-    kind: str = "lookup"           # lookup | list | summarize | locate | grade | narrator | explain
+    kind: str = "lookup"           # lookup | list | summarize | locate | grade | narrator | explain | ruling
     count: int | None = None       # narrations the reader asked for
     chapter: str | None = None     # chapter hint, resolved by the caller
     novel: bool = False            # "not common", "I don't know these"
@@ -251,6 +266,8 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
         kind = "grade"
     elif _NARRATOR.search(text):
         kind = "narrator"
+    elif _RULING.search(text):
+        kind = "ruling"
     elif _LOCATE.search(text):
         kind = "locate"
     elif _EXPLAIN.search(text):
@@ -264,6 +281,8 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
         top_k = max(3, min(MAX_LIST, count or DEFAULT_LIST))
     elif kind == "summarize":
         top_k = min(10, max(4, count or DEFAULT_SUMMARY))
+    elif kind == "ruling":
+        top_k = 6
     else:
         top_k = DEFAULT_K
 

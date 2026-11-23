@@ -132,6 +132,10 @@ def add_turn(conv: dict, question: str, result: dict) -> dict:
         "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "unverified": bool(result.get("unverified")),
+        # Kept with the turn so a reopened conversation still shows what kind
+        # of answer this was and, for a ruling, that it is not a fatwa.
+        "intent": result.get("intent"),
+        "notice": result.get("notice"),
         "created_at": _now(),
     }
     conv["next_id"] += 1

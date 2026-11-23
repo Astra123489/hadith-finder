@@ -1,12 +1,37 @@
 import pytest
 
-from hadith_sidecar import db
+from hadith_sidecar import db, qa
 from hadith_sidecar.embeddings import HashEmbedder
 from hadith_sidecar.ingest import ingest_pdf
 from hadith_sidecar.retrieval import hybrid_search
 from hadith_sidecar.rerank import IdentityReranker
-from hadith_sidecar.llm import EchoProvider
+from hadith_sidecar.llm import EchoProvider, LLMProvider
 from hadith_sidecar.qa import NOT_FOUND, ask
+
+
+@pytest.fixture()
+def ruled_conn(conn):
+    """A book with one passage that prints a ruling and one that does not."""
+    book = db.insert_book(
+        conn, title="Rulings", author=None, language="en",
+        file_path="rulings.pdf", sha256="rulings-fixture", page_count=1,
+    )
+    db.insert_chunk(
+        conn, book_id=book, chunk_index=0, page_start=0, page_end=0,
+        hadith_ref="1", chapter="Book of Trade",
+        text="Narrated Tester: The Prophet said, 'Trade in wine is haram.'",
+        norm_text="narrated tester: the prophet said, 'trade in wine is haram.'",
+        spans={},
+    )
+    db.insert_chunk(
+        conn, book_id=book, chunk_index=1, page_start=0, page_end=0,
+        hadith_ref="2", chapter="Book of Intentions",
+        text="Narrated Tester: The Prophet said, 'Actions are judged by intentions.'",
+        norm_text="narrated tester: the prophet said, 'actions are judged by intentions.'",
+        spans={},
+    )
+    conn.commit()
+    return conn
 
 
 @pytest.fixture()
@@ -59,6 +84,80 @@ def test_ask_not_found_on_empty_library(conn):
 def test_scoped_to_book_ids(indexed_conn):
     hits = hybrid_search(indexed_conn, "intentions", HashEmbedder(), book_ids=[999], pool=10)
     assert hits == []
+
+
+class QuotingRuling(LLMProvider):
+    name = "quoting-ruling"
+
+    def generate(self, system, user, **kw):
+        return "The loaded books state that trade in wine is haram [S1]."
+
+
+class ConfidentRuling(LLMProvider):
+    name = "confident-ruling"
+
+    def generate(self, system, user, **kw):
+        return "Music is haram [S1]."
+
+
+def test_ruling_question_quotes_a_stated_ruling(ruled_conn):
+    result = ask(
+        ruled_conn, "Is trade in wine halal or haram?", book_ids=None,
+        embedder=HashEmbedder(), llm=QuotingRuling(), reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "ruling"
+    assert result["answer"].startswith("The loaded books state")
+    assert result["citations"]
+    assert result["notice"] == qa.NOT_A_FATWA
+
+
+def test_ruling_question_is_silent_when_no_excerpt_states_one(indexed_conn):
+    result = ask(
+        indexed_conn, "Is music haram?", book_ids=None,
+        embedder=HashEmbedder(), llm=ConfidentRuling(), reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] == "ruling"
+    assert result["answer"] == qa.RULING_NOT_FOUND
+    assert result["citations"] == []
+    assert result["notice"] == qa.NOT_A_FATWA
+
+
+def test_verdict_in_a_lookup_answer_is_gated_too(indexed_conn):
+    result = ask(
+        indexed_conn, "What do the books say about music?", book_ids=None,
+        embedder=HashEmbedder(), llm=ConfidentRuling(), reranker=IdentityReranker(),
+    )
+    assert result["intent"]["kind"] != "ruling"
+    assert result["answer"] == qa.RULING_NOT_FOUND
+    assert result["citations"] == []
+    assert result["notice"] == qa.NOT_A_FATWA
+
+
+def test_ruling_answers_are_not_streamed_before_the_gate(ruled_conn):
+    seen: list[str] = []
+    result = ask(
+        ruled_conn, "Is trade in wine halal or haram?", book_ids=None,
+        embedder=HashEmbedder(), llm=EchoProvider(), reranker=IdentityReranker(),
+        on_token=lambda text, phase="answer": seen.append(text),
+    )
+    assert seen == []
+    assert result["citations"]
+
+
+def test_model_refusal_becomes_the_same_ruling_silence(indexed_conn):
+    class Refuses(LLMProvider):
+        name = "refuses"
+
+        def generate(self, system, user, **kw):
+            return qa.RULING_NOT_FOUND
+
+    result = ask(
+        indexed_conn, "Is music haram?", book_ids=None,
+        embedder=HashEmbedder(), llm=Refuses(), reranker=IdentityReranker(),
+    )
+    assert result["answer"] == qa.RULING_NOT_FOUND
+    assert result["citations"] == []
+    assert result["notice"] == qa.NOT_A_FATWA
 
 
 def test_chapter_scope_stays_inside_that_chapter(indexed_conn):

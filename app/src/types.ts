@@ -56,6 +56,16 @@ export interface Citation {
   also_in: Parallel[];
 }
 
+/** What the question asked for, as the sidecar routed it. */
+export interface TurnIntent {
+  kind: string;
+  count: number | null;
+  chapter: string | null;
+  novel: boolean;
+  top_k: number;
+  previous: boolean;
+}
+
 export interface AskResult {
   answer: string;
   citations: Citation[];
@@ -63,6 +73,9 @@ export interface AskResult {
   /** The model answered without citing an excerpt. */
   unverified: boolean;
   scoped_empty: boolean;
+  /** Present when the answer concerned a ruling; shown as-is. */
+  notice?: string | null;
+  intent?: TurnIntent;
   /** The whole conversation after this answer, when the sidecar returns it. */
   thread?: ThreadState;
   chats?: ChatSummary[];
@@ -107,6 +120,9 @@ export interface ThreadTurn {
   answer: string;
   citations: Citation[];
   unverified: boolean;
+  /** "This is a reading aid, not a fatwa" on a ruling answer. */
+  notice?: string | null;
+  intent?: TurnIntent | null;
   created_at: string;
 }
 

@@ -46,6 +46,23 @@ Rules:
 
 MAX_EXCERPT_CHARS = 2600
 _MAX_CITATION_EXCERPT = 700
+
+# A halal/haram question may only be answered by quoting a ruling the loaded
+# books print. When none does, the app says so instead of reasoning towards a
+# verdict — and every ruling answer carries the same notice.
+RULING_NOT_FOUND = "The loaded books do not state a ruling on this."
+NOT_A_FATWA = (
+    "This is a reading aid, not a fatwa: it reports only what the loaded books state. "
+    "Ask a qualified scholar about your own situation."
+)
+# Words that mark an explicit ruling in a passage. Deliberately narrow: a
+# passage that merely mentions the topic must not be dressed up as a verdict.
+_RULING_TERMS = re.compile(
+    r"\b(?:halal|haraam|haram|permissible|impermissible|permitted|forbidden|"
+    r"prohibited|unlawful|makruh|makrooh|wajib|obligatory|fard|mustahabb|sinful)\b"
+    r"|(?:حلال|حرام|مباح|مكروه|محرم|يجوز|لا\s+يجوز|واجب|فرض|مستحب|حكم)",
+    re.I,
+)
 _TAG_GROUP = re.compile(r"\[([^\]]{1,40})\]")
 _TAG_INNER = re.compile(r"S(\d+)")
 _WORD = re.compile(r"[0-9A-Za-z\u0600-\u06FF]{3,}")
@@ -105,6 +122,16 @@ def _tags_in(answer: str) -> list[int]:
 def _is_not_found(answer: str) -> bool:
     text = " ".join(answer.strip().strip('"\u201c\u201d').split()).lower()
     return text.startswith(NOT_FOUND.lower()) or text == NOT_FOUND.lower()
+
+
+def _is_ruling_not_found(answer: str) -> bool:
+    text = " ".join(answer.strip().strip('"\u201c\u201d').split()).lower()
+    return text.startswith(RULING_NOT_FOUND.lower())
+
+
+def _states_ruling(text: str) -> bool:
+    """Whether a passage itself states a ruling, rather than just discussing it."""
+    return bool(_RULING_TERMS.search(text or ""))
 
 
 def _parallels(conn, row, titles) -> list[dict]:
@@ -172,6 +199,13 @@ def _intent_rules(intent: Intent) -> str:
             "terms, and explain it in the reader's language — but keep every claim inside the "
             "excerpts and say when they are too short to explain a term."
         )
+    elif intent.kind == "ruling":
+        text = (
+            "8. The reader asked for a ruling. Report ONLY a ruling that an excerpt states in its "
+            "own words, quoted and cited: begin with \"The loaded books state…\". Never infer a "
+            "ruling, never extend it past what the excerpt says, and never give a verdict in your "
+            "own voice. If no excerpt states a ruling, reply exactly: \"" + RULING_NOT_FOUND + "\""
+        )
     else:
         text = ""
     if intent.novel:
@@ -190,7 +224,7 @@ def _system_prompt(intent: Intent) -> str:
 def _answer_budget(intent: Intent) -> int:
     if intent.kind == "list":
         return min(1200, 320 + 90 * intent.top_k)
-    if intent.kind in ("summarize", "explain"):
+    if intent.kind in ("summarize", "explain", "ruling"):
         return 700
     return 512
 
@@ -258,12 +292,13 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         "excerpt_tokens": 0,
         "chapter_scope": None,
     }
-    if book_ids is not None and len(book_ids) == 0:
-        plan = intent or classify(query, history_chapter=history_chapter)
-        return {**base, "scoped_empty": True, "intent": plan.as_dict()}
-
     plan = intent or classify(query, history_chapter=history_chapter)
     meta = {"intent": plan.as_dict()}
+    if plan.kind == "ruling":
+        meta["notice"] = NOT_A_FATWA
+    silence = RULING_NOT_FOUND if plan.kind == "ruling" else NOT_FOUND
+    if book_ids is not None and len(book_ids) == 0:
+        return {**base, "scoped_empty": True, **meta}
 
     chapter = match_chapter(db.list_chapters(conn, book_ids), plan.chapter) if plan.chapter else None
     meta["chapter_scope"] = chapter
@@ -282,7 +317,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         chapter_rows = db.chapter_chunks(conn, chapter, book_ids)
         chosen_rows = _sample_evenly(chapter_rows, want)
         if not chosen_rows:
-            return {**base, **meta}
+            return {**base, **meta, "answer": silence}
     elif plan.kind == "summarize" and pinned:
         chosen_rows = pinned
     else:
@@ -291,7 +326,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
             book_ids=book_ids, pool=pool, chapter=chapter, queries=plan.queries,
         )
         if not hits and not pinned:
-            return {**base, **meta}
+            return {**base, **meta, "answer": silence}
         chosen_rows = list(pinned)
         if hits:
             chunks = db.get_chunks(conn, [h.chunk_id for h in hits])
@@ -310,7 +345,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
                 chosen_rows + [row for row in picked if row["id"] not in seen_ids]
             )[:want]
         if not chosen_rows:
-            return {**base, **meta}
+            return {**base, **meta, "answer": silence}
 
     titles = _book_titles(conn, list({row["book_id"] for row in chosen_rows}))
     excerpts = [
@@ -326,9 +361,25 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
     prompt_tokens = count_tokens(llm, system + user)
     excerpt_tokens = count_tokens(llm, excerpt_text)
 
+    # A halal/haram answer must not appear token by token before the gate has
+    # seen the citations: the reader would read the verdict even when the
+    # passage behind it turns out not to state one. Those answers arrive whole.
+    sensitive = plan.kind == "ruling" or _states_ruling(query)
     answer = llm.generate(
-        system, user, max_tokens=_answer_budget(plan), on_token=on_token,
+        system, user, max_tokens=_answer_budget(plan),
+        on_token=None if sensitive else on_token,
     )
+
+    if plan.kind == "ruling" and (
+            not (answer or "").strip()
+            or _is_not_found(answer) or _is_ruling_not_found(answer)):
+        return {
+            **base, **meta,
+            "answer": RULING_NOT_FOUND,
+            "retrieved": len(hits) or len(chapter_rows) or len(chosen_rows),
+            "prompt_tokens": prompt_tokens,
+            "excerpt_tokens": excerpt_tokens,
+        }
 
     if _is_not_found(answer):
         return {
@@ -362,6 +413,24 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
             "source_index": num,
             "also_in": _parallels(conn, row, titles),
         })
+
+    # The gate: a ruling answer stands only if an excerpt it cites states a
+    # ruling itself. A confident sentence with no such passage behind it is
+    # replaced by silence, however plausible it reads. This also catches a
+    # halal/haram verdict that slipped through as an ordinary lookup: if the
+    # answer pronounces one and no cited passage does, it is not shown.
+    stated = any(
+        _states_ruling(chosen_rows[cite["source_index"] - 1]["text"]) for cite in citations
+    )
+    if not stated and (plan.kind == "ruling" or _states_ruling(answer)):
+        meta["notice"] = NOT_A_FATWA
+        return {
+            **base, **meta,
+            "answer": RULING_NOT_FOUND,
+            "retrieved": len(hits) or len(chapter_rows) or len(chosen_rows),
+            "prompt_tokens": prompt_tokens,
+            "excerpt_tokens": excerpt_tokens,
+        }
 
     return {
         "answer": answer,

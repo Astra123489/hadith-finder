@@ -80,6 +80,29 @@ def test_summary_names_its_chapter():
     assert intent.chapter == "intentions"
 
 
+def test_halal_question_is_a_ruling_request():
+    intent = classify("Is it halal to eat food slaughtered by the People of the Book?")
+    assert intent.kind == "ruling"
+    assert intent.top_k == 6
+
+
+def test_haram_question_names_the_subject():
+    assert classify("Is music haram?").kind == "ruling"
+
+
+def test_permissibility_question():
+    assert classify("Is it permissible to pray sitting down?").kind == "ruling"
+
+
+def test_ruling_question_in_arabic():
+    assert classify("ما حكم بيع الخمر؟").kind == "ruling"
+
+
+def test_list_of_halal_hadiths_stays_a_list():
+    intent = classify("give me 10 hadiths about halal earnings")
+    assert intent.kind == "list"
+
+
 def test_authenticity_question_is_a_grade_request():
     intent = classify("Is this hadith authentic?")
     assert intent.kind == "grade"
