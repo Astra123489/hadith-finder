@@ -252,6 +252,9 @@ export default function AskView({
   onBookmark,
 }: Props) {
   const [query, setQuery] = useState("");
+  // A source the reader picked with "Ask about this": it rides with the next
+  // question, so the answer starts from that exact passage.
+  const [referenced, setReferenced] = useState<Citation | null>(null);
   const [scope, setScope] = useState<number[] | null>(initialScope);
   const [llms, setLlms] = useState<LlmOption[]>([]);
   const [modelPath, setModelPath] = useState("");
@@ -506,10 +509,17 @@ export default function AskView({
     scrollToEnd();
     try {
       // new_thread stays false: this question joins the conversation.
-      const res = await api.ask(q, scope, askId, false);
+      const res = await api.ask(
+        q,
+        scope,
+        askId,
+        false,
+        referenced ? [referenced.chunk_id] : undefined,
+      );
       applyThread(res.thread);
       if (res.chats) setChats(res.chats);
       setPending(null);
+      setReferenced(null);
       scrollToEnd();
       void loadSuggestions();
     } catch (err) {
@@ -537,6 +547,7 @@ export default function AskView({
     setStreamed("");
     setThinking("");
     setQuery("");
+    setReferenced(null);
     setShowCtx(false);
     if (folderId) setClosedFolders((cur) => cur.filter((f) => f !== folderId));
     try {
@@ -558,6 +569,7 @@ export default function AskView({
     setStreamed("");
     setThinking("");
     setQuery("");
+    setReferenced(null);
     setShowCtx(false);
     try {
       const res = await api.openChat(id);
@@ -574,6 +586,7 @@ export default function AskView({
     setError(null);
     setNotice(null);
     setSuggestions([]);
+    setReferenced(null);
     try {
       const res = await api.rewindThread(turnId);
       applyThread(res.thread);
@@ -621,6 +634,12 @@ export default function AskView({
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  /** Put a cited passage into the composer, ready for a follow-up. */
+  const referenceSource = (c: Citation) => {
+    setReferenced(c);
+    inputRef.current?.focus();
   };
 
   /** Follow a "same narration" line into the reader's own copy of the book. */
@@ -910,6 +929,7 @@ export default function AskView({
                         onHighlight={onOpenCitation}
                         onBookmark={onBookmark}
                         onOpenNarration={openNarration}
+                        onReference={referenceSource}
                       />
                     ))}
                   </div>
@@ -1031,6 +1051,28 @@ export default function AskView({
 
       <div className="thread-composer">
         <form className="card ask-form" onSubmit={submit}>
+          {referenced && (
+            <div className="ref-row">
+              <span className="ref-chip">
+                <span className="ref-chip-tag">S{referenced.source_index}</span>
+                <span className="ref-chip-label">
+                  {referenced.book_title}
+                  {referenced.hadith_ref
+                    ? ` · Hadith ${referenced.hadith_ref}`
+                    : ` · p. ${referenced.page_start + 1}`}
+                </span>
+                <button
+                  type="button"
+                  className="ref-chip-x"
+                  onClick={() => setReferenced(null)}
+                  title="Remove this source reference"
+                  aria-label="Remove this source reference"
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          )}
           <textarea
             ref={inputRef}
             className="ask-input"

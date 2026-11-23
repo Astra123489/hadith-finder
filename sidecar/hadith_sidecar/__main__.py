@@ -482,6 +482,9 @@ def _ask(params):
     book_ids = params.get("book_ids")
     if book_ids is not None:
         book_ids = [int(b) for b in book_ids]
+    pinned_chunk_ids = params.get("pinned_chunk_ids")
+    if pinned_chunk_ids is not None:
+        pinned_chunk_ids = [int(c) for c in pinned_chunk_ids]
     ask_id = params.get("ask_id")
     from . import protocol
     from . import thread as thread_mod
@@ -527,6 +530,7 @@ def _ask(params):
         ),
         history_chapter=history_chapter,
         history_chunk_ids=history_chunk_ids,
+        pinned_chunk_ids=pinned_chunk_ids,
         intent=intent,
     )
     thread_mod.add_turn(conv, query, result)

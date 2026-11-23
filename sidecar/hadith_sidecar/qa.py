@@ -294,6 +294,7 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         history_chapter: str | None = None,
         history_chunk_id: int | None = None,
         history_chunk_ids: list[int] | None = None,
+        pinned_chunk_ids: list[int] | None = None,
         intent: Intent | None = None) -> dict:
     base = {
         "answer": NOT_FOUND,
@@ -341,7 +342,18 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
         if value is not None and int(value) not in history_ids:
             history_ids.append(int(value))
 
-    pinned: list = list(reference_rows)
+    # A source the reader clicked in an earlier answer: pin exactly that
+    # passage, whatever the question sounds like, so "its chain" or "explain
+    # this" is about the hadith they pointed at.
+    requested_rows: list = []
+    if pinned_chunk_ids:
+        requested_rows = db.get_chunks(conn, [int(i) for i in pinned_chunk_ids])
+        if not requested_rows:
+            return {**base, **meta, "answer": silence}
+
+    pinned: list = list(requested_rows)
+    seen = {row["id"] for row in pinned}
+    pinned += [row for row in reference_rows if row["id"] not in seen]
     if plan.kind == "compare" and history_ids:
         extra = db.get_chunks(conn, history_ids[:2])
         seen = {row["id"] for row in pinned}

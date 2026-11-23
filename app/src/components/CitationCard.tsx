@@ -30,6 +30,8 @@ interface Props {
   onBookmark?: (c: Citation, description: string) => Promise<void>;
   /** Opens a cross-reference in full, when the reader can show it. */
   onOpenNarration?: (p: Parallel) => void;
+  /** Carries this source into the next question. */
+  onReference?: (c: Citation) => void;
   /** Keeps anchor ids unique when several answers share a page. */
   idPrefix?: string;
 }
@@ -63,6 +65,7 @@ export default function CitationCard({
   onHighlight,
   onBookmark,
   onOpenNarration,
+  onReference,
   idPrefix = "citation",
 }: Props) {
   const n = c.source_index;
@@ -136,6 +139,15 @@ export default function CitationCard({
       {error && <div className="error-banner">{error}</div>}
 
       <div className="citation-actions">
+        {onReference && (
+          <button
+            className="btn btn-ghost"
+            onClick={() => onReference(c)}
+            title="Use this source in your next question"
+          >
+            ↳ Ask about this
+          </button>
+        )}
         <button className="btn" onClick={() => onHighlight(c)}>
           ✎ Highlight in book · p. {c.page_start + 1}
         </button>

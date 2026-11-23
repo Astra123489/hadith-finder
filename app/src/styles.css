@@ -256,6 +256,40 @@ html, body, #root {
 }
 .ask-input::placeholder { color: var(--text-faint); }
 
+/* The source a reader picked to ask about: it rides with the next question. */
+.ref-row { display: flex; }
+.ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  border: 1px solid var(--gold-line);
+  background: var(--gold-soft);
+  color: #f5d78a;
+  border-radius: var(--r-pill);
+  padding: 4px 5px 4px 9px;
+  font-size: 12px;
+}
+.ref-chip-tag {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--gold-line);
+  border-radius: var(--r-pill);
+  padding: 0 5px;
+}
+.ref-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-chip-x {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+  border-radius: var(--r-pill);
+}
+.ref-chip-x:hover { background: rgba(217, 164, 65, 0.22); }
+
 .ask-row {
   display: flex;
   align-items: center;

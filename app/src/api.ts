@@ -468,7 +468,13 @@ const demoApi = {
   rebuildBook: () => Promise.reject(new Error("The browser preview cannot rebuild a book.")),
   reindexBook: () => Promise.resolve({ book_id: 999, embedded: 14, total: 14 }),
   deleteBook: () => Promise.resolve({ deleted: false }),
-  ask: (query: string, _bookIds: number[] | null, _askId?: string, newThread?: boolean) => {
+  ask: (
+    query: string,
+    _bookIds: number[] | null,
+    _askId?: string,
+    newThread?: boolean,
+    _pinnedChunkIds?: number[],
+  ) => {
     if (newThread) startDemoChat();
     const chat = activeDemoChat();
     const now = new Date().toISOString();
@@ -758,8 +764,20 @@ const realApi = {
 
   deleteBook: (bookId: number) => invoke<{ deleted: boolean }>("delete_book", { bookId }),
 
-  ask: (query: string, bookIds: number[] | null, askId?: string, newThread?: boolean) =>
-    invoke<AskResult>("ask", { query, bookIds, askId: askId ?? null, newThread: newThread ?? false }),
+  ask: (
+    query: string,
+    bookIds: number[] | null,
+    askId?: string,
+    newThread?: boolean,
+    pinnedChunkIds?: number[],
+  ) =>
+    invoke<AskResult>("ask", {
+      query,
+      bookIds,
+      askId: askId ?? null,
+      newThread: newThread ?? false,
+      pinnedChunkIds: pinnedChunkIds ?? null,
+    }),
 
   listChats: () =>
     invoke<{ chats: ChatSummary[]; folders: ChatFolder[]; active: string | null }>("list_chats"),

@@ -252,6 +252,34 @@ def test_two_named_references_pin_and_cite_each_passage(two_reference_conn):
     assert "the merciful receive mercy" in llm.prompts[0]
 
 
+def test_explicitly_referenced_source_is_pinned_first(two_reference_conn):
+    target = db.find_reference_chunks(two_reference_conn, ("muslim",), "1907")[0]
+    llm = Recording()
+    result = ask(
+        two_reference_conn, "What does this narration mean?", book_ids=None,
+        embedder=HashEmbedder(), llm=llm, reranker=IdentityReranker(),
+        pinned_chunk_ids=[target["id"]],
+    )
+    assert result["citations"][0]["chunk_id"] == target["id"]
+    assert "the merciful receive mercy" in llm.prompts[0]
+
+
+def test_referenced_source_that_no_longer_exists_is_not_guessed(indexed_conn):
+    class Explodes(LLMProvider):
+        name = "explodes"
+
+        def generate(self, system, user, **kw):
+            raise AssertionError("model must not run for a missing referenced source")
+
+    result = ask(
+        indexed_conn, "What does this narration mean?", book_ids=None,
+        embedder=HashEmbedder(), llm=Explodes(), reranker=IdentityReranker(),
+        pinned_chunk_ids=[999_999],
+    )
+    assert result["answer"] == NOT_FOUND
+    assert result["citations"] == []
+
+
 def test_comparison_of_these_without_two_passages_says_so(indexed_conn):
     result = ask(
         indexed_conn, "Do these two narrations agree?", book_ids=None,

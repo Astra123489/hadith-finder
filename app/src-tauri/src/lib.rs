@@ -80,6 +80,7 @@ async fn ask(
     book_ids: Option<Vec<i64>>,
     ask_id: Option<String>,
     new_thread: Option<bool>,
+    pinned_chunk_ids: Option<Vec<i64>>,
 ) -> Result<Value, String> {
     let trimmed = query.trim().to_string();
     if trimmed.len() < 2 {
@@ -94,6 +95,7 @@ async fn ask(
                 "book_ids": book_ids,
                 "ask_id": ask_id,
                 "new_thread": new_thread.unwrap_or(false),
+                "pinned_chunk_ids": pinned_chunk_ids,
             }),
             // CPU inference on an 8B model plus reranking: generous, but finite.
             30 * 60,
