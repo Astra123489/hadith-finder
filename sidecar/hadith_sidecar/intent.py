@@ -19,6 +19,40 @@ from dataclasses import dataclass
 
 from .normalize import fts_tokens
 
+# A bare reference ("Tirmidhi 3521", "Bukhari 1", "Muslim 1907") is not a
+# keyword: the words "Tirmidhi 3521" need not appear in the text at all, so
+# retrieval has to resolve the collection against the book titles and the
+# number against chunks.hadith_ref. These are the names readers use.
+COLLECTION_ALIASES: dict[str, tuple[str, ...]] = {
+    "bukhari": ("bukhari", "البخاري"),
+    "muslim": ("muslim", "مسلم"),
+    "tirmidhi": ("tirmidhi", "tirmidhee", "الترمذي"),
+    "abu-dawud": ("abu dawud", "abu dawood", "abi dawud", "أبو داود", "ابو داود"),
+    "nasai": ("nasai", "nasa'i", "nasa’i", "النسائي"),
+    "ibn-majah": ("ibn majah", "ibn maja", "ابن ماجه"),
+    "malik": ("muwatta", "muwatta malik", "malik", "مالك"),
+    "ahmad": ("musnad ahmad", "musnad ahmad hanbal", "أحمد"),
+}
+
+_ALIAS_TO_COLLECTION = {
+    alias.lower(): key for key, aliases in COLLECTION_ALIASES.items() for alias in aliases
+}
+_REF_ALIASES = sorted(_ALIAS_TO_COLLECTION, key=len, reverse=True)
+_REF_ALIAS_GROUP = "|".join(re.escape(alias) for alias in _REF_ALIASES)
+_REF_NUMBER = r"(\d{1,5})"
+
+# group 1: the collection alias, group 2: the number
+_REFERENCE = re.compile(
+    r"(?:^|[\s(\[\-])(" + _REF_ALIAS_GROUP + r")\b[^0-9\n]{0,24}?#?\s*" + _REF_NUMBER + r"\b",
+    re.I,
+)
+# "3521 in Tirmidhi": group 1 the number, group 2 the alias
+_REFERENCE_REVERSED = re.compile(
+    r"\b" + _REF_NUMBER + r"\s*(?:in|from|of)?\s*(?:sahih\s+|sunan\s+|jami\s+)?("
+    + _REF_ALIAS_GROUP + r")\b",
+    re.I,
+)
+
 MAX_LIST = 20
 DEFAULT_LIST = 10
 DEFAULT_SUMMARY = 6
@@ -188,6 +222,7 @@ class Intent:
     queries: tuple[str, ...] = ()  # extra phrasings, fused in retrieval
     top_k: int = DEFAULT_K
     previous: bool = False         # "this narration", "that hadith"
+    reference: tuple[str, str] | None = None  # (collection key, hadith number)
 
     def as_dict(self) -> dict:
         return {
@@ -197,6 +232,7 @@ class Intent:
             "novel": self.novel,
             "top_k": self.top_k,
             "previous": self.previous,
+            "reference": list(self.reference) if self.reference else None,
         }
 
 
@@ -218,6 +254,22 @@ def _count(text: str) -> int | None:
             if value:
                 return value
     return None
+
+
+def find_reference(text: str) -> tuple[str, str] | None:
+    """The collection and number in a question like "authenticity of Tirmidhi 3521"."""
+    match = _REFERENCE.search(text)
+    if match:
+        alias, number = match.group(1), match.group(2)
+    else:
+        match = _REFERENCE_REVERSED.search(text)
+        if not match:
+            return None
+        number, alias = match.group(1), match.group(2)
+    key = _ALIAS_TO_COLLECTION.get(alias.lower())
+    if not key:
+        return None
+    return key, number.translate(_AR_DIGITS)
 
 
 def _chapter_hint(text: str, history_chapter: str | None) -> str | None:
@@ -299,6 +351,7 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
         queries=queries,
         top_k=top_k,
         previous=bool(_THIS_REF.search(text)),
+        reference=find_reference(text),
     )
 
 

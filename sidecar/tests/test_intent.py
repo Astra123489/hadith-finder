@@ -80,6 +80,33 @@ def test_summary_names_its_chapter():
     assert intent.chapter == "intentions"
 
 
+def test_collection_reference_is_parsed():
+    intent = classify("What is the authenticity of Tirmidhi 3521?")
+    assert intent.kind == "grade"
+    assert intent.reference == ("tirmidhi", "3521")
+
+
+def test_reference_in_reverse_order():
+    assert classify("3521 in Tirmidhi").reference == ("tirmidhi", "3521")
+
+
+def test_sahih_muslim_reference():
+    assert classify("Sahih Muslim 1907").reference == ("muslim", "1907")
+
+
+def test_hyphenated_collection_title():
+    assert classify("Sahih al-Bukhari 1234").reference == ("bukhari", "1234")
+    assert classify("Jami at-Tirmidhi 3521").reference == ("tirmidhi", "3521")
+
+
+def test_reference_with_a_hadith_word_between():
+    assert classify("Tirmidhi hadith no. 3521").reference == ("tirmidhi", "3521")
+
+
+def test_arabic_collection_reference():
+    assert classify("صحة حديث البخاري ١").reference == ("bukhari", "1")
+
+
 def test_halal_question_is_a_ruling_request():
     intent = classify("Is it halal to eat food slaughtered by the People of the Book?")
     assert intent.kind == "ruling"

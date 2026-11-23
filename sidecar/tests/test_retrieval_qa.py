@@ -35,6 +35,26 @@ def ruled_conn(conn):
 
 
 @pytest.fixture()
+def referenced_conn(conn):
+    """A collection whose printed hadith number only exists in metadata."""
+    book = db.insert_book(
+        conn, title="Jami at-Tirmidhi", author=None, language="en",
+        file_path="tirmidhi.pdf", sha256="tirmidhi-fixture", page_count=1,
+    )
+    db.insert_chunk(
+        conn, book_id=book, chunk_index=0, page_start=0, page_end=0,
+        hadith_ref="3521", chapter="Book of Supplication",
+        text=("Narrated Tester: The Prophet used to supplicate with many words. "
+              "The collector said: this hadith is hasan gharib."),
+        norm_text=("narrated tester: the prophet used to supplicate with many words. "
+                   "the collector said: this hadith is hasan gharib."),
+        spans={},
+    )
+    conn.commit()
+    return conn
+
+
+@pytest.fixture()
 def indexed_conn(conn, sample_pdf):
     ingest_pdf(conn, sample_pdf, title="Fixture")
     embedder = HashEmbedder()
@@ -158,6 +178,48 @@ def test_model_refusal_becomes_the_same_ruling_silence(indexed_conn):
     assert result["answer"] == qa.RULING_NOT_FOUND
     assert result["citations"] == []
     assert result["notice"] == qa.NOT_A_FATWA
+
+
+def test_bare_collection_reference_resolves_to_its_passage(referenced_conn):
+    result = ask(
+        referenced_conn, "What is the authenticity of Tirmidhi 3521?", book_ids=None,
+        embedder=HashEmbedder(), llm=EchoProvider(), reranker=IdentityReranker(),
+    )
+    assert result["intent"]["reference"] == ["tirmidhi", "3521"]
+    assert result["citations"]
+    assert result["citations"][0]["hadith_ref"] == "3521"
+    assert result["citations"][0]["book_title"] == "Jami at-Tirmidhi"
+
+
+def test_unheld_reference_is_reported_before_the_model_runs(indexed_conn):
+    class Explodes(LLMProvider):
+        name = "explodes"
+
+        def generate(self, system, user, **kw):
+            raise AssertionError("model must not run for an unresolved reference")
+
+    result = ask(
+        indexed_conn, "Is Tirmidhi 3521 authentic?", book_ids=None,
+        embedder=HashEmbedder(), llm=Explodes(), reranker=IdentityReranker(),
+    )
+    assert result["answer"] == NOT_FOUND
+    assert result["citations"] == []
+
+
+def test_reference_suffix_is_accepted_but_not_a_longer_number(conn):
+    book = db.insert_book(
+        conn, title="Sunan Ibn Majah", author=None, language="en",
+        file_path="majah.pdf", sha256="majah-fixture", page_count=1,
+    )
+    db.insert_chunk(
+        conn, book_id=book, chunk_index=0, page_start=0, page_end=0,
+        hadith_ref="45a", chapter="Book of Purification",
+        text="Narrated Tester: purification is half of faith.",
+        norm_text="narrated tester: purification is half of faith.", spans={},
+    )
+    conn.commit()
+    assert [r["hadith_ref"] for r in db.find_reference_chunks(conn, ("ibn majah",), "45")] == ["45a"]
+    assert db.find_reference_chunks(conn, ("ibn majah",), "4") == []
 
 
 def test_chapter_scope_stays_inside_that_chapter(indexed_conn):

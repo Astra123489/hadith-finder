@@ -263,6 +263,35 @@ def chapter_chunks(conn, chapter: str, book_ids: list[int] | None = None) -> lis
     return conn.execute(sql, params).fetchall()
 
 
+def find_reference_chunks(conn, aliases: list[str] | tuple[str, ...], number: str,
+                          book_ids: list[int] | None = None,
+                          limit: int = 3) -> list[sqlite3.Row]:
+    """Resolve "Tirmidhi 3521" to the passages that number names.
+
+    A bare reference never appears in the chunk text, so it cannot be found by
+    keyword search: the collection is matched against the book title and the
+    number against the printed hadith reference. ``3521a`` style suffixes are
+    accepted; a longer number that merely starts with 3521 is not.
+    """
+    aliases = [alias for alias in aliases if alias]
+    if not aliases or not number:
+        return []
+    titles = " OR ".join("b.title LIKE ?" for _ in aliases)
+    sql = (
+        "SELECT c.* FROM chunks c JOIN books b ON b.id = c.book_id "
+        f"WHERE (c.hadith_ref = ? OR c.hadith_ref GLOB ?) AND ({titles})"
+    )
+    params: list = [number, f"{number}[^0-9]*"] + [f"%{alias}%" for alias in aliases]
+    if book_ids is not None:
+        if not book_ids:
+            return []
+        sql += f" AND c.book_id IN ({','.join('?' * len(book_ids))})"
+        params += list(book_ids)
+    sql += " ORDER BY c.book_id, c.chunk_index LIMIT ?"
+    params.append(max(1, int(limit)))
+    return conn.execute(sql, params).fetchall()
+
+
 # ---------- gradings ----------
 
 def insert_gradings(conn, chunk_id: int, found: list[tuple[str, str]]) -> None:

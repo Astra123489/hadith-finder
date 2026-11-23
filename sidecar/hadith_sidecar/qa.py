@@ -26,7 +26,7 @@ import json
 import re
 
 from . import crossref, db
-from .intent import Intent, classify, match_chapter
+from .intent import COLLECTION_ALIASES, Intent, classify, match_chapter
 from .llm import count_tokens
 from .retrieval import hybrid_search
 
@@ -305,11 +305,26 @@ def ask(conn, query: str, *, book_ids: list[int] | None, embedder, llm, reranker
     want = max(1, int(top_k if top_k is not None else plan.top_k))
     search_text = plan.search_text or query
 
+    # A bare reference ("Tirmidhi 3521") is not a keyword: resolve the
+    # collection against the book titles and the number against the printed
+    # hadith reference. If the library does not hold it, say so instead of
+    # letting keyword search wander into unrelated passages.
+    reference_rows: list = []
+    if plan.reference:
+        collection, number = plan.reference
+        reference_rows = db.find_reference_chunks(
+            conn, COLLECTION_ALIASES.get(collection, ()), number, book_ids
+        )
+        if not reference_rows:
+            return {**base, **meta, "answer": silence}
+
     # "this narration" / "that hadith": the reader is pointing at the passage
     # already on screen, so it is pinned in rather than searched for again.
-    pinned: list = []
+    pinned: list = list(reference_rows)
     if plan.previous and history_chunk_id and not chapter:
-        pinned = db.get_chunks(conn, [int(history_chunk_id)])
+        extra = db.get_chunks(conn, [int(history_chunk_id)])
+        seen = {row["id"] for row in pinned}
+        pinned += [row for row in extra if row["id"] not in seen]
 
     hits = []
     chapter_rows: list = []
