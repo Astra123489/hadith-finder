@@ -31,6 +31,12 @@ MIN_CTX = 1024
 MAX_CTX = 131072
 _STOP = ["<|im_end|>", "<|endoftext|>"]
 
+# Reasoning and answer share one max_tokens cap, and reasoning comes first, so a
+# long reasoning trace could use up the whole allowance and stop the answer
+# mid-sentence. Thinking models get this many tokens on top of the answer
+# budget, which itself stays exactly as the caller asked for.
+REASONING_TOKENS = 1024
+
 # Where the weights live. "auto" uses the GPU when this build has an offload
 # backend, otherwise the CPU.
 DEVICES = ("auto", "gpu", "cpu")
@@ -588,11 +594,14 @@ class LlamaCppProvider(LLMProvider):
             return choice.get("text") or ""
         return ""
 
+    @staticmethod
+    def _generation_budget(max_tokens: int, thinking: bool) -> int:
+        """Total tokens to generate: the answer's budget plus reasoning room."""
+        return max_tokens + REASONING_TOKENS if thinking else max_tokens
+
     def generate(self, system: str, user: str, *, max_tokens: int = 512,
                  temperature: float = 0.2, on_token=None) -> str:
-        if self.thinking:
-            # Reasoning is emitted before the answer; give it room.
-            max_tokens = max(max_tokens, 768)
+        max_tokens = self._generation_budget(max_tokens, self.thinking)
         if on_token is None:
             out = self._completion(system, user, max_tokens=max_tokens,
                                    temperature=temperature, stream=False)
