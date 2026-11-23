@@ -78,6 +78,34 @@ _NOVEL = re.compile(
     r"|(?:غير\s+مشهور|غير\s+معروف|نادرة)",
     re.I,
 )
+# The questions readers actually bring to hadith collections, in the order
+# they show up on Islam Stack Exchange and in fatwa answers: "is this hadith
+# authentic?", "who narrated it?", "what does it mean?".
+_GRADE = re.compile(
+    r"\bauthenticity\b"
+    r"|\bgrad(?:e|ing)\b"
+    r"|\bis\s+(?:this|it|that|the following|the narration|the hadith)\b[^?.!]{0,80}?"
+    r"\b(?:authentic|sahih|hasan|da'?if|dha'?if|weak|fabricated|mawdu|reliable|valid|sound)\b"
+    r"|\bsahih\s+or\s+(?:fake|fabricated|weak)\b"
+    r"|\b(?:check|verify)\s+(?:this|the)\s+(?:hadith|narration)\b"
+    r"|(?:ما\s+صحة|صحة\s+الحديث|درجة\s+الحديث|هل\s+هذا\s+الحديث|هل\s+الحديث"
+    r"|حديث\s+صحيح|حديث\s+ضعيف|موضوع)",
+    re.I,
+)
+_NARRATOR = re.compile(
+    r"\bwho\s+(?:narrated|reported|transmitted|related|said)\s+(?:this|it|that|the)\b"
+    r"|\bwho\s+is\s+the\s+narrator\b|\bnarrator(?:s)?\b"
+    r"|\bisnad\b|\bsanad\b|\bchain\s+of\s+(?:narration|transmission|narrators)\b"
+    r"|\bfrom\s+whom\b|\bwho\s+(?:did|has)\s+(?:narrate|report)"
+    r"|(?:من\s+روى|من\s+حدث|رواة|الإسناد|الاسناد|السند|سند\s+الحديث)",
+    re.I,
+)
+_EXPLAIN = re.compile(
+    r"\bwhat\s+does\s+(?:this|it|that|the\s+(?:hadith|narration|word|phrase))\b[^?.!]{0,40}?\bmean\b"
+    r"|\bmeaning\s+of\b|\bexplain\b|\bexplanation\b|\bcommentary\s+on\b"
+    r"|(?:ما\s+معنى|معنى\s+الحديث|اشرح|شرح\s+الحديث|فسر|تفسير\s+الحديث)",
+    re.I,
+)
 _CHAPTER_PHRASE = re.compile(
     r"\b(?:chapter|book|section|kitab|bab)\s+"
     r"(?:on|about|of|titled|called|named|entitled)\s+"
@@ -137,7 +165,7 @@ _SCAFFOLD = [
 class Intent:
     """How to search and how to answer, derived from one question."""
 
-    kind: str = "lookup"           # lookup | list | summarize | locate
+    kind: str = "lookup"           # lookup | list | summarize | locate | grade | narrator | explain
     count: int | None = None       # narrations the reader asked for
     chapter: str | None = None     # chapter hint, resolved by the caller
     novel: bool = False            # "not common", "I don't know these"
@@ -219,8 +247,14 @@ def classify(query: str, *, history_chapter: str | None = None) -> Intent:
     elif asks_for_many and (
             _LIST.search(text) or _COUNT_AFTER_HADITH.search(text) or _COUNT_AFTER_ME.search(text)):
         kind = "list"
+    elif _GRADE.search(text):
+        kind = "grade"
+    elif _NARRATOR.search(text):
+        kind = "narrator"
     elif _LOCATE.search(text):
         kind = "locate"
+    elif _EXPLAIN.search(text):
+        kind = "explain"
     else:
         kind = "lookup"
 

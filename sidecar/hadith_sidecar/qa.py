@@ -153,6 +153,25 @@ def _intent_rules(intent: Intent) -> str:
             "8. The reader asked where something is. Start with the exact location from the excerpt "
             "headers — book, chapter, page and hadith number — then the quotation."
         )
+    elif intent.kind == "grade":
+        text = (
+            "8. The reader asked how sound the narration is. Give the grading exactly as the excerpts "
+            "state it (sahih, hasan, da'if, mawdu', or the collector's own words). If no excerpt "
+            "grades it, say that this book does not grade it — never infer a grade from the wording, "
+            "and never repeat a grade the excerpts do not contain."
+        )
+    elif intent.kind == "narrator":
+        text = (
+            "8. The reader asked about the chain of narration. Give the isnad exactly as the excerpt "
+            "gives it, in order, and name the Companion who reported it when the excerpt does. Never "
+            "supply a missing link or correct a name from outside knowledge."
+        )
+    elif intent.kind == "explain":
+        text = (
+            "8. The reader asked what the passage means. Quote the key phrase, gloss unfamiliar "
+            "terms, and explain it in the reader's language — but keep every claim inside the "
+            "excerpts and say when they are too short to explain a term."
+        )
     else:
         text = ""
     if intent.novel:
@@ -171,7 +190,7 @@ def _system_prompt(intent: Intent) -> str:
 def _answer_budget(intent: Intent) -> int:
     if intent.kind == "list":
         return min(1200, 320 + 90 * intent.top_k)
-    if intent.kind == "summarize":
+    if intent.kind in ("summarize", "explain"):
         return 700
     return 512
 

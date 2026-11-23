@@ -113,6 +113,22 @@ def test_follow_up_uses_the_last_cited_passage(indexed_conn):
     assert result["citations"][0]["chunk_id"] == row["id"]
 
 
+def test_authenticity_follow_up_reads_the_pinned_passage(indexed_conn):
+    row = next(db.iter_book_chunks(indexed_conn, 1))
+    result = ask(
+        indexed_conn,
+        "Is this hadith authentic?",
+        book_ids=None,
+        embedder=HashEmbedder(),
+        llm=EchoProvider(),
+        reranker=IdentityReranker(),
+        history_chunk_id=row["id"],
+    )
+    assert result["intent"]["kind"] == "grade"
+    assert result["citations"]
+    assert result["citations"][0]["chunk_id"] == row["id"]
+
+
 def test_chapter_summary_is_scoped_to_the_named_chapter(indexed_conn):
     chapter = next(c for c in db.list_chapters(indexed_conn) if "Mercy" in c)
     result = ask(

@@ -2,9 +2,13 @@ from hadith_sidecar.intent import classify, match_chapter
 
 
 def test_plain_question_is_a_lookup():
-    intent = classify("Who narrated the hadith about intentions?")
+    intent = classify("What is said about patience in the Book of Mercy?")
     assert intent.kind == "lookup"
     assert intent.top_k == 5
+
+
+def test_who_narrated_a_named_hadith_is_a_narrator_question():
+    assert classify("Who narrated the hadith about intentions?").kind == "narrator"
 
 
 def test_show_me_one_hadith_is_still_a_lookup():
@@ -74,6 +78,44 @@ def test_summary_names_its_chapter():
     intent = classify("summarize the chapter on intentions")
     assert intent.kind == "summarize"
     assert intent.chapter == "intentions"
+
+
+def test_authenticity_question_is_a_grade_request():
+    intent = classify("Is this hadith authentic?")
+    assert intent.kind == "grade"
+    assert intent.previous is True
+
+
+def test_pasted_text_authenticity_question():
+    assert classify("What is the authenticity of the following narration?").kind == "grade"
+
+
+def test_sahih_list_stays_a_list():
+    intent = classify("give me 10 sahih hadiths about mercy")
+    assert intent.kind == "list"
+    assert intent.count == 10
+
+
+def test_narrator_question():
+    intent = classify("Who narrated this hadith?")
+    assert intent.kind == "narrator"
+    assert intent.previous is True
+
+
+def test_isnad_question():
+    assert classify("What is the chain of narration for this hadith?").kind == "narrator"
+
+
+def test_explanation_question():
+    intent = classify("Explain this hadith")
+    assert intent.kind == "explain"
+    assert intent.previous is True
+
+
+def test_arabic_authenticity_question():
+    intent = classify("ما صحة هذا الحديث؟")
+    assert intent.kind == "grade"
+    assert intent.previous is True
 
 
 def test_location_question():
